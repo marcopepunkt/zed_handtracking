@@ -11,7 +11,7 @@ def main():
     # Create a InitParameters object and set configuration parameters
     init_params = sl.InitParameters()
     init_params.camera_resolution = sl.RESOLUTION.HD1080
-    init_params.depth_mode = sl.DEPTH_MODE.PERFORMANCE
+    init_params.depth_mode = sl.DEPTH_MODE.NEURAL
     init_params.coordinate_units = sl.UNIT.MILLIMETER
 
     # Open the camera
@@ -26,8 +26,9 @@ def main():
     # Create Mat objects to hold images and depth data
     image_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
     depth_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    
     # Create a blob detector with default parameters
-    color_lower = (0, 130, 130,0)
+    color_lower = (0, 130, 130,0) # BGR format (This is for yellow color)
     color_upper = (90, 200, 200,255)   
     
     detector = cv2.SimpleBlobDetector.create()
@@ -39,7 +40,7 @@ def main():
             # Retrieve left image
             zed.retrieve_image(image_zed, sl.VIEW.LEFT, sl.MEM.CPU, image_size)
             # Retrieve depth map
-            zed.retrieve_image(depth_zed, sl.VIEW.DEPTH, sl.MEM.CPU, image_size)
+            zed.retrieve_measure(depth_zed, sl.MEASURE.DEPTH, sl.MEM.CPU, image_size)
 
             #print("Retrieved image and depth")
             # Convert sl.Mat to numpy array
@@ -47,7 +48,7 @@ def main():
             depth_np = depth_zed.get_data()
 
             #cv2.imshow("Image", image_np)
-            #cv2.imshow("Depth", depth_np)
+            cv2.imshow("Depth", depth_np)
             
             # select relevant colors in the image
             #processed_image = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
@@ -139,5 +140,7 @@ def hello_zed():
     # Close the camera
     zed.close()
 
+
 if __name__ == "__main__":
     main()
+    
