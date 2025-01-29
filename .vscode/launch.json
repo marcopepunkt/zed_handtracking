@@ -1,0 +1,17 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Calibration",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/calibration_zed.py",
+            "console": "integratedTerminal",
+            "args" : ["--calib_svo_path", "calibration_data", "--calib_output_path", "calibration_output"]
+        }
+    ]
+}
