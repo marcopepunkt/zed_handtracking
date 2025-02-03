@@ -4,6 +4,7 @@ import pyzed.sl as sl
 import sys
 import os
 import yaml
+import open3d as o3d
 
 origin_id = 39725782 # The serial number of the camera at the origin of the world frame
 
@@ -15,6 +16,37 @@ class camera_data:
         
     def get_projection_matrix(self):
         return self.intrinsics @ self.extrinsics[:3, :]
+
+def blob_detection(image_np):
+    
+   
+    # Create a blob detector with default parameters
+    color_lower = (0, 130, 130,0) # BGR format (This is for yellow color)
+    color_upper = (90, 200, 200,255)   
+    
+    mask = cv2.inRange(image_np, color_lower, color_upper)
+            
+    #cv2.imshow("Mask", mask)
+    
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, 
+                                            cv2.CHAIN_APPROX_NONE)
+  
+    if contours:
+        blob = max(contours, key=cv2.contourArea)
+    else:
+        return None
+    print(cv2.contourArea(blob))
+    if cv2.contourArea(blob) > 500:    
+        M = cv2.moments(blob)
+        center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+        #cv2.circle(image_np, center, 10, (0, 0, 255), -1)
+        # Get the depth value at the center of the blob
+        #depth_value = float(depth_np[center[1], center[0]])
+        #cv2.putText(image_np, f"Distance: {depth_value} mm", (center[0] + 10, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        #print(f"Blob center at {center} has depth: {depth_value} mm")
+        return center
+    else:
+        return None
 
 def main():
     # Create a ZED camera object
@@ -37,8 +69,7 @@ def main():
 
     # Create Mat objects to hold images and depth data
     image_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
-    depth_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
-    
+    depth_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.F32_C1)    
     # Create a blob detector with default parameters
     color_lower = (0, 130, 130,0) # BGR format (This is for yellow color)
     color_upper = (90, 200, 200,255)   
@@ -80,15 +111,17 @@ def main():
             
             # # Draw a circle at the center of the image
             # cv2.circle(image_np, (middle_x, middle_y), 10, (0, 0, 255), 2)
-            
-            blob = max(contours, key=lambda el: cv2.contourArea(el))
+            if contours:
+                blob = max(contours, key=cv2.contourArea)
+            else:
+                continue
             print(cv2.contourArea(blob))
             if cv2.contourArea(blob) > 500:    
                 M = cv2.moments(blob)
                 center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
                 cv2.circle(image_np, center, 10, (0, 0, 255), -1)
                 # Get the depth value at the center of the blob
-                depth_value = depth_np[center[1], center[0]]
+                depth_value = float(depth_np[center[1], center[0]])
                 cv2.putText(image_np, f"Distance: {depth_value} mm", (center[0] + 10, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                 print(f"Blob center at {center} has depth: {depth_value} mm")
 
@@ -122,7 +155,7 @@ def main():
 
 
 def triangulation(cams, uv):
-    """This function returns the 3D position of a point in the camera frame from a single image"""
+    """This function returns the 3D position of a point in the global frame (from calibration pattern) from a single image"""
     assert len(cams) == len(uv), "The number of cameras and the number of uv coordinates must be the same"
     assert len(cams) ==2 , "The number is so far 2, TODO for more than 2 cameras" # TODO: Implement for more than 2 cameras
     
@@ -130,36 +163,25 @@ def triangulation(cams, uv):
     
     i, j = 0, 1
     
-    
-    # Set the camera with the origin_id as cam 1
-    if cams[0].camera_id != origin_id:
-        i, j = 1, 0
-        print("Swapped the cameras, since the first camera is not the origin camera")
-            
-    
     # Get the cameras and the uv coordinates
     cam1, cam2 = cams[i], cams[j]
-    x1, x2 = np.array(uv[i]), np.array(uv[j])
-    
+        
+    K1, K2 = cam1.intrinsics, cam2.intrinsics
+
+    # Convert pixel coordinates (u, v) to normalized image coordinates (x_n, y_n)
+    x1 =  np.array([uv[i][0], uv[i][1], 1])
+    x2 = np.array([uv[j][0], uv[j][1], 1])
         
     # Construct projection matrices P1 and P2
     P1 = cam1.get_projection_matrix()
     P2 = cam2.get_projection_matrix()
     
-   
     # Triangulate 3D point using OpenCV
-    point_4d = cv2.triangulatePoints(P1, P2, x1, x2)
-    
+    point_4d = cv2.triangulatePoints(P1, P2, x1[:2], x2[:2])
+
     # Convert from homogeneous to Cartesian coordinates
     p_W = point_4d[:3] / point_4d[3]
-    
-    # Transform to the first camera's coordinate frame
-    R_W_C1 = np.linalg.inv(cam1.extrinsics[:3, :3])
-    p_target = R_W_C1 @ (p_W.flatten() - cam1.extrinsics[:3, 3])
-    
-    points_3d.append(p_target)
-    
-    return points_3d
+    return p_W
     
 def load_camera_calib(path = "calibration_output") -> list[camera_data]:
     """This function loads the camera calibration parameters from a yaml file"""
@@ -176,16 +198,66 @@ def load_camera_calib(path = "calibration_output") -> list[camera_data]:
             except yaml.YAMLError as exc:
                 print(exc)
     return cams
+
+
+
+def visualize_extrinsics(cams, points):
+    """Visualizes camera extrinsic matrices as coordinate frames with labels."""
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    
+
+    for cam in cams:
+        cam_id = cam.camera_id
+        extr = cam.extrinsics
+        extr = np.linalg.inv(extr)
+        print(f"Camera {cam_id} at:\n{extr}")
+
+        # Create frame and add to visualizer
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=50)
+        frame.transform(extr)
+        vis.add_geometry(frame)
+        
+        text = o3d.t.geometry.TriangleMesh.create_text(text = f"Cam {cam_id}", depth = 5).to_legacy()
+        text.paint_uniform_color([1, 0, 0])
+        text.transform(extr)
+        vis.add_geometry(text)
+        
+    if points is not None:
+        for point in points:
+            point = np.array(point)
+            transform = np.eye(4)
+            transform[:3, 3] = point.reshape(-1)
+            print(f"Point at:\n{point}")
+            point = o3d.geometry.TriangleMesh.create_sphere(radius=10)
+            point.transform(transform)
+            vis.add_geometry(point)
+            
+    # Add origin frame
+    frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=20)
+    frame.transform(np.eye(4))
+    vis.add_geometry(frame)
+    # Run visualizer
+    vis.run()
+    vis.destroy_window()
+
+        
         
 if __name__ == "__main__":
     cams = load_camera_calib()
     
-    # Get the uv coordinates -> Must be normalized
-    uv1 = [612/1280, 395/720]
-    uv2 = [736/1280, 331/720]
+    # points = []
+    # # Get the uv coordinates -> Must be normalized
+    # uv1 = [0.5*1280, 0.5*720]
+    # uv2 = [0.5*1280, 0.5*720]
     
-    point = triangulation(cams, [uv1, uv2])
-    print(point)
+    # points.append(triangulation(cams, [uv1, uv2]))
+    # uv1 = [0.5*1280, 0.5*720]
+    # uv2 = [0.6*1280, 0.5*720]
+    # points.append(triangulation(cams, [uv1, uv2]))
+    # visualize_extrinsics(cams, points)
+    
+    
     # Then get the uv coordinates from the image for the blob and call 
     print("done")
     #main()

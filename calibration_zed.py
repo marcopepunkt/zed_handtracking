@@ -22,7 +22,7 @@ def main(args):
     } for intr in intrinsics]
     
     disto = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.disto for zed in zed_list]
-    
+        
     # create intrinsics matrix
     intrinsics_mat = []
     for intr in intrinsics:

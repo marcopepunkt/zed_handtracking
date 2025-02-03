@@ -28,6 +28,7 @@ import numpy as np
 import threading
 import time
 import signal
+import blob_detector as bd
 
 zed_list = []
 left_list = []
@@ -74,6 +75,7 @@ def main():
     init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
+    cams = bd.load_camera_calib()
 
 
     #List and open cameras
@@ -105,17 +107,23 @@ def main():
     #Display camera images
     key = ''
     while key != 113:  # for 'q' key
+        # This is the main loop
         for index in range(0, len(zed_list)):
             if zed_list[index].is_opened():
                 if (timestamp_list[index] > last_ts_list[index]):
+                    img = left_list[index].get_data()
                     cv2.imshow(name_list[index], left_list[index].get_data())
-                    x = round(depth_list[index].get_width() / 2)
-                    y = round(depth_list[index].get_height() / 2)
-                    err, depth_value = depth_list[index].get_value(x, y)
-                    if np.isfinite(depth_value):
-                        print("{} depth at center: {}MM".format(name_list[index], round(depth_value)))
+                    
+                    # x = round(depth_list[index].get_width() / 2)
+                    # y = round(depth_list[index].get_height() / 2)
+                    # err, depth_value = depth_list[index].get_value(x, y)
+                    # if np.isfinite(depth_value):
+                    #     print("{} depth at center: {}MM".format(name_list[index], round(depth_value)))
                     last_ts_list[index] = timestamp_list[index]
         key = cv2.waitKey(10)
+        
+        # After doing getting all the blobs, we can do the position estimation and visualize it. 
+        
     cv2.destroyAllWindows()
 
     #Stop the threads
