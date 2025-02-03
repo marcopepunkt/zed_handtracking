@@ -29,7 +29,7 @@ def main(args):
         fx, fy, cx, cy = intr['fx'], intr['fy'], intr['cx'], intr['cy']
         intrinsics_mat.append(np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32))
 
-
+    # get the frames from all initialized cameras 
     images = [sl.Mat() for _ in zed_list]
     images_np = []
     runtime = sl.RuntimeParameters()
@@ -56,8 +56,9 @@ def main(args):
         """cv2.imshow("Image", gray)
         cv2.waitKey()
         cv2.destroyAllWindows()"""
+        # Get the chessboard corners
         ret, corners = cv2.findChessboardCorners(gray, chessboard_size, None)
-        if ret:
+        if ret: # if corners are found
             objpoints.append(objp)
             # Refine the corner positions
             criteria = (cv2.TermCriteria_EPS + cv2.TermCriteria_MAX_ITER, 30, 0.001)
@@ -72,13 +73,13 @@ def main(args):
                                                                 cv2.CALIB_FIX_INTRINSIC +
                                                                 cv2.CALIB_FIX_PRINCIPAL_POINT+cv2.CALIB_FIX_FOCAL_LENGTH)"""
         ret, rvec, tvec = cv2.solvePnP(objpoints[0], imgpoints[0], intrinsics_mat[cam_idx], disto[cam_idx], None, None, useExtrinsicGuess=False, flags=cv2.SOLVEPNP_ITERATIVE)
-        if ret:            
+        if ret: # if calibration is successful and we found the extrinsics
             rotation_matrix, _ = cv2.Rodrigues(rvec)
             extr_4x4 = np.eye(4)
             extr_4x4[:3, :3] = rotation_matrix
             extr_4x4[:3, 3] = tvec.T
             
-            # Visualize the calibration results
+            # Visualize the calibration results and project the points into the image
             imgpoints2, _ = cv2.projectPoints(objpoints[0], rvec, tvec, intrinsics_mat[cam_idx], disto[cam_idx])
             error = cv2.norm(imgpoints[0], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
             print(f"Total reprojection error: {error}")
@@ -96,7 +97,7 @@ def main(args):
             cv2.destroyAllWindows()
             
             with open(rf"{args.calib_output_path}/extr_{cam_idx}_{zed_serials[cam_idx]}.yml", 'w') as file:
-                yaml.dump({'extr_4x4': extr_4x4.tolist()}, file)
+                yaml.dump({"id": zed_serials[cam_idx], 'extr_4x4': extr_4x4.tolist(), "intr_3x3": intrinsics_mat[cam_idx].tolist(), "disto": disto[cam_idx].tolist()}, file)
 
             print("Translation vector:\n", tvec)
         else:

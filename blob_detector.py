@@ -2,7 +2,19 @@ import cv2
 import numpy as np
 import pyzed.sl as sl
 import sys
+import os
+import yaml
 
+origin_id = 39725782 # The serial number of the camera at the origin of the world frame
+
+class camera_data:
+    def __init__(self, camera_id, intrinsics, extrinsics):
+        self.camera_id = camera_id
+        self.intrinsics = np.array(intrinsics)
+        self.extrinsics = np.array(extrinsics)
+        
+    def get_projection_matrix(self):
+        return self.intrinsics @ self.extrinsics[:3, :]
 
 def main():
     # Create a ZED camera object
@@ -10,7 +22,7 @@ def main():
 
     # Create a InitParameters object and set configuration parameters
     init_params = sl.InitParameters()
-    init_params.camera_resolution = sl.RESOLUTION.HD1080
+    init_params.camera_resolution = sl.RESOLUTION.HD720 
     init_params.depth_mode = sl.DEPTH_MODE.NEURAL
     init_params.coordinate_units = sl.UNIT.MILLIMETER
 
@@ -71,7 +83,7 @@ def main():
             
             blob = max(contours, key=lambda el: cv2.contourArea(el))
             print(cv2.contourArea(blob))
-            if cv2.contourArea(blob) > 1000:    
+            if cv2.contourArea(blob) > 500:    
                 M = cv2.moments(blob)
                 center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
                 cv2.circle(image_np, center, 10, (0, 0, 255), -1)
@@ -108,39 +120,73 @@ def main():
     zed.close()
     cv2.destroyAllWindows()
 
-def hello_zed():
-    # Create a Camera object
-    zed = sl.Camera()
 
-    # Create a InitParameters object and set configuration parameters
-    init_params = sl.InitParameters()
-    init_params.camera_resolution = sl.RESOLUTION.AUTO # Use HD720 opr HD1200 video mode, depending on camera type.
-    init_params.camera_fps = 30 # Set fps at 30
-    # Open the camera
-    err = zed.open(init_params)
-    if err != sl.ERROR_CODE.SUCCESS:
-        exit(1)
+def triangulation(cams, uv):
+    """This function returns the 3D position of a point in the camera frame from a single image"""
+    assert len(cams) == len(uv), "The number of cameras and the number of uv coordinates must be the same"
+    assert len(cams) ==2 , "The number is so far 2, TODO for more than 2 cameras" # TODO: Implement for more than 2 cameras
+    
+    points_3d = []
+    
+    i, j = 0, 1
+    
+    
+    # Set the camera with the origin_id as cam 1
+    if cams[0].camera_id != origin_id:
+        i, j = 1, 0
+        print("Swapped the cameras, since the first camera is not the origin camera")
+            
+    
+    # Get the cameras and the uv coordinates
+    cam1, cam2 = cams[i], cams[j]
+    x1, x2 = np.array(uv[i]), np.array(uv[j])
+    
         
-   # Capture 50 frames and stop
-    i = 0
-    image = sl.Mat()
-    while (i < 50) :
-        # Grab an image
-        if (zed.grab() == sl.ERROR_CODE.SUCCESS) :
-            # A new image is available if grab() returns SUCCESS
-            zed.retrieve_image(image, sl.VIEW.LEFT) # Get the left image
-            timestamp = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE) # Get the timestamp at the time the image was captured
-            print("Image resolution: {0} x {1} || Image timestamp: {2}\n".format(image.get_width(), image.get_height(),
-                    timestamp.get_milliseconds()))
-            i = i+1
-    # Get camera information (ZED serial number)
-    #zed_serial = zed.get_camera_information().serial_number
-    #print("Hello! This is my serial number: {0}".format(zed_serial))
-
-    # Close the camera
-    zed.close()
-
-
+    # Construct projection matrices P1 and P2
+    P1 = cam1.get_projection_matrix()
+    P2 = cam2.get_projection_matrix()
+    
+   
+    # Triangulate 3D point using OpenCV
+    point_4d = cv2.triangulatePoints(P1, P2, x1, x2)
+    
+    # Convert from homogeneous to Cartesian coordinates
+    p_W = point_4d[:3] / point_4d[3]
+    
+    # Transform to the first camera's coordinate frame
+    R_W_C1 = np.linalg.inv(cam1.extrinsics[:3, :3])
+    p_target = R_W_C1 @ (p_W.flatten() - cam1.extrinsics[:3, 3])
+    
+    points_3d.append(p_target)
+    
+    return points_3d
+    
+def load_camera_calib(path = "calibration_output") -> list[camera_data]:
+    """This function loads the camera calibration parameters from a yaml file"""
+    #iterate over all files in the folder calibration_output
+    cams = []
+    for idx,file in enumerate(os.listdir(path)):
+        #open the file
+        fullpath = os.path.join(path, file)
+        with open(fullpath, 'r') as stream:
+            try:
+                data = yaml.safe_load(stream)
+                #create a camera object
+                cams.append(camera_data(data["id"],data['intr_3x3'],data['extr_4x4']))
+            except yaml.YAMLError as exc:
+                print(exc)
+    return cams
+        
 if __name__ == "__main__":
-    main()
+    cams = load_camera_calib()
+    
+    # Get the uv coordinates -> Must be normalized
+    uv1 = [612/1280, 395/720]
+    uv2 = [736/1280, 331/720]
+    
+    point = triangulation(cams, [uv1, uv2])
+    print(point)
+    # Then get the uv coordinates from the image for the blob and call 
+    print("done")
+    #main()
     
