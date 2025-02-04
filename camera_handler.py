@@ -29,6 +29,7 @@ import threading
 import time
 import signal
 import blob_detector as bd
+import open3d as o3d
 
 zed_list = []
 left_list = []
@@ -75,17 +76,18 @@ def main():
     init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
-    cams = bd.load_camera_calib()
 
 
     #List and open cameras
     name_list = []
     last_ts_list = []
+    calibration_data = []
     cameras = sl.Camera.get_device_list()
     index = 0
     for cam in cameras:
         init.set_from_serial_number(cam.serial_number)
-        name_list.append("ZED {}".format(cam.serial_number))
+        name_list.append(str(cam.serial_number))
+        calibration_data.append(bd.load_camera_calib(float(cam.serial_number))[0])
         print("Opening {}".format(name_list[index]))
         zed_list.append(sl.Camera())
         left_list.append(sl.Mat())
@@ -98,32 +100,63 @@ def main():
             zed_list[index].close()
         index = index +1
 
+    
     #Start camera threads
     for index in range(0, len(zed_list)):
         if zed_list[index].is_opened():
             thread_list.append(threading.Thread(target=grab_run, args=(index,)))
             thread_list[index].start()
+            
+    #Create windwos for open3d
+    sphere, vis = bd.visualize_extrinsics(calibration_data, [[0,0,0]])
     
     #Display camera images
     key = ''
     while key != 113:  # for 'q' key
+        uv = []
         # This is the main loop
         for index in range(0, len(zed_list)):
             if zed_list[index].is_opened():
                 if (timestamp_list[index] > last_ts_list[index]):
                     img = left_list[index].get_data()
-                    cv2.imshow(name_list[index], left_list[index].get_data())
-                    
+                    center = bd.blob_detection(img)
+                    if center is None:
+                        continue
+                    # Do the blob detection here
+                    uv.append(center)
+                    center_as_int = np.array(center, dtype=int)
+                    cv2.circle(img, center_as_int, 5, (0, 0, 255), -1)                 
+                    cv2.imshow(name_list[index], img)
+
                     # x = round(depth_list[index].get_width() / 2)
                     # y = round(depth_list[index].get_height() / 2)
                     # err, depth_value = depth_list[index].get_value(x, y)
                     # if np.isfinite(depth_value):
                     #     print("{} depth at center: {}MM".format(name_list[index], round(depth_value)))
                     last_ts_list[index] = timestamp_list[index]
+        
+        # Do the triangulation here 
+        if len(uv) == len(zed_list) and len(uv) == 2 and uv[0] is not None and uv[1] is not None:
+            point = bd.triangulation(calibration_data, uv)
+            
+            # Update the visualization in open3d
+            #vis.remove_geometry(sphere[0])
+            
+            #transform = np.eye(4)
+            #transform[:3, 3] = point.reshape(-1)
+            #sphere[0] = o3d.geometry.TriangleMesh.create_sphere(radius=10)
+            sphere[0].translate(point.reshape(-1), relative=False)
+            vis.update_geometry(sphere[0]) 
+            #vis.add_geometry(sphere[0])
+            vis.poll_events()
+            vis.update_renderer() 
+
+            print(point)
+        else: 
+            print("Dot not detected in all cameras")
+            
         key = cv2.waitKey(10)
-        
-        # After doing getting all the blobs, we can do the position estimation and visualize it. 
-        
+                
     cv2.destroyAllWindows()
 
     #Stop the threads

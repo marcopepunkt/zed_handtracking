@@ -21,8 +21,8 @@ def blob_detection(image_np):
     
    
     # Create a blob detector with default parameters
-    color_lower = (0, 130, 130,0) # BGR format (This is for yellow color)
-    color_upper = (90, 200, 200,255)   
+    color_lower = (0, 50, 160,0) # BGR format (This is for yellow color)
+    color_upper = (70, 160, 255,255)   
     
     mask = cv2.inRange(image_np, color_lower, color_upper)
             
@@ -35,10 +35,10 @@ def blob_detection(image_np):
         blob = max(contours, key=cv2.contourArea)
     else:
         return None
-    print(cv2.contourArea(blob))
-    if cv2.contourArea(blob) > 500:    
+    #print(cv2.contourArea(blob))
+    if cv2.contourArea(blob) > 5:    
         M = cv2.moments(blob)
-        center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+        center = [float(M["m10"] / M["m00"]), float(M["m01"] / M["m00"])]
         #cv2.circle(image_np, center, 10, (0, 0, 255), -1)
         # Get the depth value at the center of the blob
         #depth_value = float(depth_np[center[1], center[0]])
@@ -70,12 +70,7 @@ def main():
     # Create Mat objects to hold images and depth data
     image_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
     depth_zed = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.F32_C1)    
-    # Create a blob detector with default parameters
-    color_lower = (0, 130, 130,0) # BGR format (This is for yellow color)
-    color_upper = (90, 200, 200,255)   
-    
-    detector = cv2.SimpleBlobDetector.create()
-
+  
     while True:
         # Grab an image and depth data
         if zed.grab() == sl.ERROR_CODE.SUCCESS:
@@ -89,61 +84,24 @@ def main():
             # Convert sl.Mat to numpy array
             image_np = image_zed.get_data()
             depth_np = depth_zed.get_data()
-
-            #cv2.imshow("Image", image_np)
-            cv2.imshow("Depth", depth_np)
             
-            # select relevant colors in the image
-            #processed_image = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
-            mask = cv2.inRange(image_np, color_lower, color_upper)
+            center = blob_detection(image_np)
             
-            cv2.imshow("Mask", mask)
-            
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, 
-                                                    cv2.CHAIN_APPROX_NONE)
-            # Draw contours on the image
-            #cv2.drawContours(image_np, contours, -1, (0, 255, 0), 2)
-            
-            # Get the RGB value of the pixel in the middle of the image
-            # middle_x, middle_y = image_size.width // 2, image_size.height // 2
-            # rgb_value = image_np[middle_y, middle_x]
-            # print(f"RGB value at the center ({middle_x}, {middle_y}): {rgb_value}")
-            
-            # # Draw a circle at the center of the image
-            # cv2.circle(image_np, (middle_x, middle_y), 10, (0, 0, 255), 2)
-            if contours:
-                blob = max(contours, key=cv2.contourArea)
-            else:
-                continue
-            print(cv2.contourArea(blob))
-            if cv2.contourArea(blob) > 500:    
-                M = cv2.moments(blob)
-                center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                cv2.circle(image_np, center, 10, (0, 0, 255), -1)
+            if center is not None:
+                cv2.circle(image_np, center, 5, (0, 0, 255), -1)
                 # Get the depth value at the center of the blob
                 depth_value = float(depth_np[center[1], center[0]])
                 cv2.putText(image_np, f"Distance: {depth_value} mm", (center[0] + 10, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                 print(f"Blob center at {center} has depth: {depth_value} mm")
 
-
-            #processed_image = cv2.bitwise_and(image_np, image_np, mask=mask)
-            #cv2.imshow("Processed Image", processed_image)
-            # Detect blobs
-            #keypoints = detector.detect(processed_image)
-            #print(keypoints)
-
-            # Draw detected blobs as red circles
-            #im_with_keypoints = cv2.drawKeypoints(image_np, keypoints,  None, (255, 0, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
-            # Display the image with keypoints
+            # Show the color in the center of the image
+            center = (image_size.width // 2, image_size.height // 2)
+            print(f"Center of the image has color: {image_np[center[1], center[0]]}")
+            cv2.circle(image_np, center, 5, (0, 0, 255), -1)
+                       
             cv2.imshow("Blob Detection", image_np)
-
-            # Get depth value for each keypoint
-            """for keypoint in keypoints:
-                x, y = int(keypoint.pt[0]), int(keypoint.pt[1])
-                depth_value = depth_np[y, x]
-                print(f"Blob at ({x}, {y}) has depth: {depth_value} mm")"""
-
+            
+            
             # Exit on 'q' key press
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -181,10 +139,12 @@ def triangulation(cams, uv):
 
     # Convert from homogeneous to Cartesian coordinates
     p_W = point_4d[:3] / point_4d[3]
+    p_W = p_W.reshape(-1)
     return p_W
     
-def load_camera_calib(path = "calibration_output") -> list[camera_data]:
-    """This function loads the camera calibration parameters from a yaml file"""
+def load_camera_calib(id = None, path = "calibration_output"):
+    """This function loads the camera calibration parameters from a yaml file. If an ID 
+    is provided, it will only load the calibration parameters for that camera"""
     #iterate over all files in the folder calibration_output
     cams = []
     for idx,file in enumerate(os.listdir(path)):
@@ -193,6 +153,8 @@ def load_camera_calib(path = "calibration_output") -> list[camera_data]:
         with open(fullpath, 'r') as stream:
             try:
                 data = yaml.safe_load(stream)
+                if id is not None and data["id"] != id:
+                    continue
                 #create a camera object
                 cams.append(camera_data(data["id"],data['intr_3x3'],data['extr_4x4']))
             except yaml.YAMLError as exc:
@@ -222,6 +184,8 @@ def visualize_extrinsics(cams, points):
         text.paint_uniform_color([1, 0, 0])
         text.transform(extr)
         vis.add_geometry(text)
+    
+    o3d_points = []
         
     if points is not None:
         for point in points:
@@ -229,33 +193,36 @@ def visualize_extrinsics(cams, points):
             transform = np.eye(4)
             transform[:3, 3] = point.reshape(-1)
             print(f"Point at:\n{point}")
-            point = o3d.geometry.TriangleMesh.create_sphere(radius=10)
-            point.transform(transform)
-            vis.add_geometry(point)
+            sphere = o3d.geometry.TriangleMesh.create_sphere(radius=10)
+            sphere.transform(transform)
+            vis.add_geometry(sphere)
+            o3d_points.append(sphere)
             
     # Add origin frame
     frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=20)
     frame.transform(np.eye(4))
     vis.add_geometry(frame)
+    vis.poll_events()
+    vis.update_renderer()
     # Run visualizer
-    vis.run()
-    vis.destroy_window()
-
+    print("Done")
+    #vis.destroy_window()
+    return o3d_points, vis
         
         
 if __name__ == "__main__":
     cams = load_camera_calib()
     
-    # points = []
-    # # Get the uv coordinates -> Must be normalized
-    # uv1 = [0.5*1280, 0.5*720]
-    # uv2 = [0.5*1280, 0.5*720]
+    points = []
+    # Get the uv coordinates -> Must be normalized
+    uv1 = [0.5*1280, 0.5*720]
+    uv2 = [0.5*1280, 0.5*720]
     
-    # points.append(triangulation(cams, [uv1, uv2]))
-    # uv1 = [0.5*1280, 0.5*720]
-    # uv2 = [0.6*1280, 0.5*720]
-    # points.append(triangulation(cams, [uv1, uv2]))
-    # visualize_extrinsics(cams, points)
+    points.append(triangulation(cams, [uv1, uv2]))
+    uv1 = [0.5*1280, 0.5*720]
+    uv2 = [0.6*1280, 0.5*720]
+    points.append(triangulation(cams, [uv1, uv2]))
+    visualize_extrinsics(cams, points)
     
     
     # Then get the uv coordinates from the image for the blob and call 
