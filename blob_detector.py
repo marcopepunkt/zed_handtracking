@@ -166,53 +166,6 @@ def load_camera_calib(id = None, path = "calibration_output"):
                 print(exc)
     return cams
 
-def visualize_extrinsics(cams, points):
-    """Visualizes camera extrinsic matrices as coordinate frames with labels."""
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    
-
-    for cam in cams:
-        cam_id = cam.camera_id
-        extr = cam.extrinsics
-        extr = np.linalg.inv(extr)
-        print(f"Camera {cam_id} at:\n{extr}")
-
-        # Create frame and add to visualizer
-        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=50)
-        frame.transform(extr)
-        vis.add_geometry(frame)
-        
-        text = o3d.t.geometry.TriangleMesh.create_text(text = f"Cam {cam_id}", depth = 5).to_legacy()
-        text.paint_uniform_color([1, 0, 0])
-        text.transform(extr)
-        vis.add_geometry(text)
-    
-    o3d_points = []
-        
-    if points is not None:
-        for point in points:
-            point = np.array(point)
-            transform = np.eye(4)
-            transform[:3, 3] = point.reshape(-1)
-            print(f"Point at:\n{point}")
-            sphere = o3d.geometry.TriangleMesh.create_sphere(radius=10)
-            sphere.transform(transform)
-            vis.add_geometry(sphere)
-            o3d_points.append(sphere)
-            
-    # Add origin frame
-    frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=20)
-    frame.transform(np.eye(4))
-    vis.add_geometry(frame)
-    vis.poll_events()
-    vis.update_renderer()
-    # Run visualizer
-    print("Done")
-    #vis.destroy_window()
-    return o3d_points, vis
- 
- 
 
 if __name__ == "__main__":
     cams = load_camera_calib()
@@ -226,7 +179,7 @@ if __name__ == "__main__":
     uv1 = [0.5*1280, 0.5*720]
     uv2 = [0.6*1280, 0.5*720]
     points.append(triangulation(cams, [uv1, uv2]))
-    visualize_extrinsics(cams, points)
+    #visualize_extrinsics(cams, points)
     
     
     # Then get the uv coordinates from the image for the blob and call 

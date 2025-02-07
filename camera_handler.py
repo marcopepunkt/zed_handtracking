@@ -30,6 +30,7 @@ import time
 import signal
 import blob_detector as bd
 import open3d as o3d
+import visualizer
 
 zed_list = []
 left_list = []
@@ -112,8 +113,7 @@ def main():
             thread_list[index].start()
             
     #Create windwos for open3d
-    sphere, vis = bd.visualize_extrinsics(calibration_data, [[0,0,0], [0,0,0]])
-    
+    vis = visualizer.open3d_visualizer(calibration_data)  
     #Display camera images
     key = ''
     while key != 113:  # for 'q' key
@@ -133,23 +133,20 @@ def main():
                         transform = calibration_data[index].extrinsics
                         xyz_stereo = np.array([xyz_stereo[0], xyz_stereo[1], xyz_stereo[2], 1])
                         xyz_global = np.dot(np.linalg.inv(transform), xyz_stereo)
-                        stereo_points.append(xyz_global)
+                        stereo_points.append(xyz_global[:3])
                         center_as_int = np.array(center, dtype=int)
                         cv2.circle(img, center_as_int, 5, (0, 0, 255), -1)   
                     uv.append(centers)
                                   
-                    cv2.imshow(name_list[index], img)
+                    #cv2.imshow(name_list[index], img)
                     last_ts_list[index] = timestamp_list[index]
         
         # now i have the uv coordinates from all cameras, i will now match them. First approach is stupid: 
         # Just see which uv coordinates are the closest to the previous frame.. 
-        num_points = min(NUM_POINTS, len(stereo_points))
-        for i in range(0, num_points):
-            point = stereo_points[i]
-            sphere[i].translate(point.reshape(-1)[:3], relative=False)
-            vis.update_geometry(sphere[i])
-            vis.poll_events()
-            vis.update_renderer()
+        
+        if len(stereo_points)>0:
+            vis.visualize_points(stereo_points)
+            
             
         # Do the triangulation here 
         # if len(uv) == len(zed_list) and len(uv) == 2 and uv[0] is not None and uv[1] is not None:
@@ -174,6 +171,7 @@ def main():
         key = cv2.waitKey(10)
                 
     cv2.destroyAllWindows()
+    vis.close()
 
     #Stop the threads
     stop_signal = True
