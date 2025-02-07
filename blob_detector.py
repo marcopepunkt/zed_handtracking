@@ -18,8 +18,7 @@ class camera_data:
         return self.intrinsics @ self.extrinsics[:3, :]
 
 def blob_detection(image_np):
-    
-   
+    """This function detects blobs in an image and returns their centers"""
     # Create a blob detector with default parameters
     color_lower = (0, 50, 160,0) # BGR format (This is for yellow color)
     color_upper = (70, 160, 255,255)   
@@ -28,25 +27,31 @@ def blob_detection(image_np):
             
     #cv2.imshow("Mask", mask)
     
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, 
+    blobs, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, 
                                             cv2.CHAIN_APPROX_NONE)
   
-    if contours:
-        blob = max(contours, key=cv2.contourArea)
-    else:
+    if blobs is None:
         return None
+    
+    centers = []
+    
     #print(cv2.contourArea(blob))
-    if cv2.contourArea(blob) > 5:    
-        M = cv2.moments(blob)
-        center = [float(M["m10"] / M["m00"]), float(M["m01"] / M["m00"])]
-        #cv2.circle(image_np, center, 10, (0, 0, 255), -1)
-        # Get the depth value at the center of the blob
-        #depth_value = float(depth_np[center[1], center[0]])
-        #cv2.putText(image_np, f"Distance: {depth_value} mm", (center[0] + 10, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-        #print(f"Blob center at {center} has depth: {depth_value} mm")
-        return center
-    else:
-        return None
+    for blob in blobs:
+        if cv2.contourArea(blob) > 5 and cv2.contourArea(blob) < 1000:    
+            M = cv2.moments(blob)
+            center = [float(M["m10"] / M["m00"]), float(M["m01"] / M["m00"])]
+            centers.append(center)
+    
+    return centers if len(centers) > 0 else None
+
+def match_blobs(uv):
+    """This function matches blobs from different cameras"""
+    assert len(uv) == 2, "The number of uv coordinates must be 2"
+    # Get the uv coordinates from the two cameras
+    uv1, uv2 = uv[0], uv[1]
+    # Get the 3D position of the blob in the global frame
+
+    return p_W
 
 def main():
     # Create a ZED camera object
@@ -161,8 +166,6 @@ def load_camera_calib(id = None, path = "calibration_output"):
                 print(exc)
     return cams
 
-
-
 def visualize_extrinsics(cams, points):
     """Visualizes camera extrinsic matrices as coordinate frames with labels."""
     vis = o3d.visualization.Visualizer()
@@ -208,8 +211,9 @@ def visualize_extrinsics(cams, points):
     print("Done")
     #vis.destroy_window()
     return o3d_points, vis
-        
-        
+ 
+ 
+
 if __name__ == "__main__":
     cams = load_camera_calib()
     

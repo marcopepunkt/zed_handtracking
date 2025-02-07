@@ -38,6 +38,10 @@ timestamp_list = []
 thread_list = []
 stop_signal = False
 
+NUM_POINTS = 2
+
+
+
 def signal_handler(signal, frame):
     global stop_signal
     stop_signal=True
@@ -56,7 +60,7 @@ def grab_run(index):
         err = zed_list[index].grab(runtime)
         if err == sl.ERROR_CODE.SUCCESS:
             zed_list[index].retrieve_image(left_list[index], sl.VIEW.LEFT)
-            zed_list[index].retrieve_measure(depth_list[index], sl.MEASURE.DEPTH)
+            zed_list[index].retrieve_measure(depth_list[index], sl.MEASURE.XYZ)
             timestamp_list[index] = zed_list[index].get_timestamp(sl.TIME_REFERENCE.CURRENT).data_ns
         time.sleep(0.001) #1ms
     zed_list[index].close()
@@ -108,52 +112,64 @@ def main():
             thread_list[index].start()
             
     #Create windwos for open3d
-    sphere, vis = bd.visualize_extrinsics(calibration_data, [[0,0,0]])
+    sphere, vis = bd.visualize_extrinsics(calibration_data, [[0,0,0], [0,0,0]])
     
     #Display camera images
     key = ''
     while key != 113:  # for 'q' key
         uv = []
+        stereo_points = []
         # This is the main loop
         for index in range(0, len(zed_list)):
             if zed_list[index].is_opened():
                 if (timestamp_list[index] > last_ts_list[index]):
                     img = left_list[index].get_data()
-                    center = bd.blob_detection(img)
-                    if center is None:
+                    centers = bd.blob_detection(img)
+                    if centers is None:
                         continue
                     # Do the blob detection here
-                    uv.append(center)
-                    center_as_int = np.array(center, dtype=int)
-                    cv2.circle(img, center_as_int, 5, (0, 0, 255), -1)                 
+                    for center in centers:
+                        err, xyz_stereo = depth_list[index].get_value(int(center[0]), int(center[1]))
+                        transform = calibration_data[index].extrinsics
+                        xyz_stereo = np.array([xyz_stereo[0], xyz_stereo[1], xyz_stereo[2], 1])
+                        xyz_global = np.dot(np.linalg.inv(transform), xyz_stereo)
+                        stereo_points.append(xyz_global)
+                        center_as_int = np.array(center, dtype=int)
+                        cv2.circle(img, center_as_int, 5, (0, 0, 255), -1)   
+                    uv.append(centers)
+                                  
                     cv2.imshow(name_list[index], img)
-
-                    # x = round(depth_list[index].get_width() / 2)
-                    # y = round(depth_list[index].get_height() / 2)
-                    # err, depth_value = depth_list[index].get_value(x, y)
-                    # if np.isfinite(depth_value):
-                    #     print("{} depth at center: {}MM".format(name_list[index], round(depth_value)))
                     last_ts_list[index] = timestamp_list[index]
         
-        # Do the triangulation here 
-        if len(uv) == len(zed_list) and len(uv) == 2 and uv[0] is not None and uv[1] is not None:
-            point = bd.triangulation(calibration_data, uv)
-            
-            # Update the visualization in open3d
-            #vis.remove_geometry(sphere[0])
-            
-            #transform = np.eye(4)
-            #transform[:3, 3] = point.reshape(-1)
-            #sphere[0] = o3d.geometry.TriangleMesh.create_sphere(radius=10)
-            sphere[0].translate(point.reshape(-1), relative=False)
-            vis.update_geometry(sphere[0]) 
-            #vis.add_geometry(sphere[0])
+        # now i have the uv coordinates from all cameras, i will now match them. First approach is stupid: 
+        # Just see which uv coordinates are the closest to the previous frame.. 
+        num_points = min(NUM_POINTS, len(stereo_points))
+        for i in range(0, num_points):
+            point = stereo_points[i]
+            sphere[i].translate(point.reshape(-1)[:3], relative=False)
+            vis.update_geometry(sphere[i])
             vis.poll_events()
-            vis.update_renderer() 
+            vis.update_renderer()
+            
+        # Do the triangulation here 
+        # if len(uv) == len(zed_list) and len(uv) == 2 and uv[0] is not None and uv[1] is not None:
+        #     #point = bd.triangulation(calibration_data, uv)
+            
+        #     # Update the visualization in open3d
+        #     #vis.remove_geometry(sphere[0])
+            
+        #     #transform = np.eye(4)
+        #     #transform[:3, 3] = point.reshape(-1)
+        #     #sphere[0] = o3d.geometry.TriangleMesh.create_sphere(radius=10)
+        #     sphere[0].translate(point.reshape(-1), relative=False)
+        #     vis.update_geometry(sphere[0]) 
+        #     #vis.add_geometry(sphere[0])
+        #     vis.poll_events()
+        #     vis.update_renderer() 
 
-            print(point)
-        else: 
-            print("Dot not detected in all cameras")
+        #     print(point)
+        # else: 
+        #     print("Dot not detected in all cameras")
             
         key = cv2.waitKey(10)
                 
