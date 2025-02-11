@@ -8,41 +8,15 @@ import open3d as o3d
 import time
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
+from visualizer import open3d_visualizer
+from zed_util import MultiCamSync, CameraData
 
 origin_id = 39725782 # The serial number of the camera at the origin of the world frame
 NUM_BLOBS = 3
-color_list = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
-rematch_markers = True # this is a flag to indicate if the markers should be rematched
+color_dict = {39725782: (255, 0, 0), 38580376: (0, 255, 0), 0: (0, 0, 255)}
 
-class CameraData:
-    def __init__(self, camera_id, intrinsics, extrinsics):
-        self.camera_id = camera_id
-        self.intrinsics = np.array(intrinsics)
-        self.extrinsics = np.array(extrinsics)
-        
-    def get_projection_matrix(self):
-        return self.intrinsics @ self.extrinsics[:3, :]
-   
-    def init_zed(self, svo_input_path):
-            # loads the svo2 file and returns the frames of the depth and the left color image
-        init_params = sl.InitParameters()
-        init_params.set_from_svo_file(svo_input_path)
-        init_params.svo_real_time_mode = False  # Don't convert in realtime
-        init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use milliliter units (for depth measurements)
-        init_params.depth_mode = sl.DEPTH_MODE.NEURAL 
-        init_params.camera_resolution = sl.RESOLUTION.HD1080
-        
-        zed = sl.Camera()
 
-        # Open the SVO file specified as a parameter
-        err = zed.open(init_params)
-        if err != sl.ERROR_CODE.SUCCESS:
-            sys.stdout.write(repr(err))
-            zed.close()
-            exit()
-            
-        self.zed = zed
-    
+
 
 class Blobs:
     def __init__(self, camera_id, num_blobs):
@@ -75,30 +49,6 @@ class Blobs:
         # solve
         return self.uv, self.xyz_stereo_estimate
         
-class Markers: 
-    def __init_(self, num_markers):
-        """Each blob is tracked via the Blobs class, but to match the Blobs across 
-        mutiple cameras, we need to track the markers in 3D and return a indexlist, 
-        which assigns each blob to a marker. This is necessary for triangulation."""
-        self.num_markers = num_markers
-        self.xyz = np.zeros(shape=(num_markers,3))
-    
-    def match_markers(self, uv1, uv2, xyz1, xyz2):
-        """This function matches the points"""
-        cost = cdist(self.xyz, xyz_new)
-        row_ind, col_ind = linear_sum_assignment(cost)
-        
-        # for i, j in zip(row_ind, col_ind):
-        #     self.xyz[i] = xyz_new[j]
-            
-        return zip(row_ind, col_ind)
-    
-    def reassign_markers(self, camera_id):
-        """This function sorts the blobs so that they match between different cameras"""
-        
-        
-        return assignment 
-        
         
         
 
@@ -116,7 +66,7 @@ def blob_detection(image_np, cam_id):
     # Threshold to get only orange
     mask = cv2.inRange(hsv, lower_orange, upper_orange)
     
-    cv2.imshow(f"Theshhold Mask {cam_id}", mask)
+    #cv2.imshow(f"Theshhold Mask {cam_id}", mask)
 
     # Clean up noise via opening/closing
     kernel = np.ones((5, 5), np.uint8)
@@ -132,7 +82,7 @@ def blob_detection(image_np, cam_id):
     for cnt in contours:
         # Approx. the sphere with a minimum enclosing circle
         (x, y), radius = cv2.minEnclosingCircle(cnt)
-        if radius > 5:  # filter out too-small circles
+        if radius > 8:  # filter out too-small circles
             centers.append((int(x), int(y)))
 
     return centers
@@ -252,6 +202,52 @@ def load_camera_calib(id = None, path = "calibration_output"):
                 print(exc)
     return cams
     
+def assign_in_3d_with_fallback(blobs_dict, cams, distance_threshold=50.0):
+    """
+    1) Gathers 3D points (already transformed into a common/world frame).
+    2) Matches them using Hungarian in 3D space.
+    3) If distance > distance_threshold, skip the match and fallback to the camera's stereo data.
+    4) Returns final matched pairs and fallback points.
+
+    Assumes:
+    - blobs_dict[camX_id].xyz_stereo_estimate has shape [N, 3] in same coordinate frame.
+    """
+
+    # 1) Gather camera 3D points
+    xyz_cam = []
+    for cam in cams: # For each camera
+        cam_id = cam.camera_id
+        xyz_cam.append(np.array(blobs_dict[cam_id].xyz_stereo_estimate))
+   
+   
+    # 2) Build cost matrix from 3D distances
+    cost_matrix = cdist(xyz_cam[0], xyz_cam[1])  # shape: [N1, N2]
+
+    # 3) Hungarian assignment
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    matched_pairs = []
+    # Keep track of used indices
+    used_rows = set()
+    used_cols = set()
+
+    # 4) Filter matches by distance_threshold
+    for r, c in zip(row_ind, col_ind):
+        if cost_matrix[r, c] < distance_threshold:
+            matched_pairs.append((r, c))
+            used_rows.add(r)
+            used_cols.add(c)
+
+    # 5) Find unmatched points
+    unmatched_cam1 = set(range(len(xyz_cam[0]))) - used_rows
+    unmatched_cam2 = set(range(len(xyz_cam[1]))) - used_cols
+
+    # 6) Fallback to the single-camera stereo data for unmatched or “bad” matches
+    fallback_points_cam1 = [xyz_cam[0][i] for i in unmatched_cam1]
+    fallback_points_cam2 = [xyz_cam[1][j] for j in unmatched_cam2]
+    fallback_points_cam1.extend(fallback_points_cam2)
+    # Return the final data
+    return matched_pairs, fallback_points_cam1
 
 if __name__ == "__main__":
     # Load the calibration data
@@ -260,29 +256,33 @@ if __name__ == "__main__":
     for cam in cams: 
         cam.init_zed(f"cpp_multicam_rec/build/SVO_SN{cam.camera_id}.svo2")
         blobs_dict[cam.camera_id] = Blobs(cam.camera_id, NUM_BLOBS)
-        
-        
+    
+    frame_grabber = MultiCamSync(cams)
+    
+    vis = open3d_visualizer(cams)
     print("Initialized cameras")    
 
-    marker = Markers(NUM_BLOBS)
     image_mat = sl.Mat()
     depth_mat = sl.Mat()
     xyz_mat = sl.Mat()
     loop = True
     while loop:
+        img_list = []
+        if frame_grabber.grab_frames() != sl.ERROR_CODE.SUCCESS:
+            print("Failed to grab frames")
+            loop = False
+            break
         for cam in cams:
-            if cam.zed.grab() == sl.ERROR_CODE.SUCCESS:
-                cam.zed.retrieve_image(image_mat, sl.VIEW.LEFT)
-                cam.zed.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
-                cam.zed.retrieve_measure(xyz_mat, sl.MEASURE.XYZ)
-            else:
-                print("Failed to grab frame")
-                loop = False
-                break
+            cam.zed.retrieve_image(image_mat, sl.VIEW.LEFT)
+            cam.zed.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
+            cam.zed.retrieve_measure(xyz_mat, sl.MEASURE.XYZ)
+            print(f"Cam {cam.camera_id} at timestamp {cam.zed.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_milliseconds()}")
+            
             id = cam.camera_id
             
             img = image_mat.get_data()[:, :, :3] 
             img = img.astype(np.uint8)   
+            img_list.append(img)
             depth = depth_mat.get_data()
             xyz_data = xyz_mat.get_data()         
             transform = cam.extrinsics
@@ -304,39 +304,46 @@ if __name__ == "__main__":
                     
                     # Move the xyz point 10 mm further back
                     xyz_stereo_point = xyz_data[center_as_int[1], center_as_int[0]]
+                    xyz_stereo_point = np.array([xyz_stereo_point[0], xyz_stereo_point[1], xyz_stereo_point[2], 1])
                     direction = xyz_stereo_point[0:3] / np.linalg.norm(xyz_stereo_point[0:3])
                     xyz_stereo_point[0:3] = xyz_stereo_point[0:3] + 10 * direction     
                     xyz_global = np.dot(np.linalg.inv(transform), xyz_stereo_point)
                     xyzs_global.append(xyz_global[:3])
-                                   
-                
-                matched_uvs, matched_xyzs = blobs_dict[cam.camera_id].filter_blobs(centers_as_int, xyzs_global)
-                
-                assignment = marker.reassign_markers(cam.camera_id)
-                assigned_uvs = [matched_uvs[i] for i in assignment]
-                assigned_xyzs = [matched_xyzs[i]for i in assignment]
-                
-                
-                
-                for blob_id, matched_uv in enumerate(matched_uvs):
-                    cv2.circle(img, (int(matched_uv[0]), int(matched_uv[1])), 5, color_list[blob_id], -1)
-                    cv2.putText(img, f"At point {matched_xyzs[blob_id]}", (int(matched_uv[0]) + 10 , int(matched_uv[1]) -10 ), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                #uv.append(centers)
-                            
+             
+                vis.visualize_points(xyzs_global, color = color_dict[id])
+                #matched_uvs, matched_xyzs = blobs_dict[cam.camera_id].filter_blobs(centers_as_int, xyzs_global)
+            
             cv2.imshow(f"Camera {id}", img)
-            #cv2.imshow(f"Depth {id}", depth)
+
+        # Now we have the uv coordinates and the xyz stereo coordinates from each camera
+        # We now match the points and triangulate the assigned ones. We use the xyz stereo coordinates, if we cannot assign them 
+        # as an input we have the list of blob classes and the output is the list of xyz global coordinates and the list of uv coordinates
+        # for each camera
+        # matched_pairs, stereo_estimations = assign_in_3d_with_fallback(blobs_dict, cams)
+        
+        # triangulated_position = []
+        # for (idx1, idx2) in matched_pairs:
+        #     uv_cam1 = blobs_dict[cams[0].cam_id].uv[idx1]
+        #     uv_cam2 = blobs_dict[cams[1].cam_id].uv[idx2]
+        #     triangulated_position.append(triangulation(cams, [uv_cam1, uv_cam2]))
+        
+        
+        # Now we have the triangulated positions of the matched blobs 
+        # We now want to track each marker and update the position of the marker in the global frame 
+        #vis.visualize_points(triangulated_position)
+         
+        
+        
+        # for blob_id, matched_uv in enumerate(matched_uvs):
+        #     cv2.circle(img, (int(matched_uv[0]), int(matched_uv[1])), 5, color_list[blob_id], -1)
+        #     cv2.putText(img, f"At point {matched_xyzs[blob_id]}", (int(matched_uv[0]) + 10 , int(matched_uv[1]) -10 ), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        #uv.append(centers)
+                        
+        #cv2.imshow(f"Depth {id}", depth)
         
         # Now we have the uv coordinates for each blob and triangulate them using opencv
-        for cam in cams:
-            uv = blobs_dict[cam.camera_id].uv
-            xyz_global = triangulation(cams, uv)
-            marker.xyz[cam.camera_id] = xyz_global
         
-        
-        if rematch_markers: 
-            print("Rematching markers")
-            marker.match_markers(blobs_dict)
-            rematch_markers = False
+
         
         cv2.waitKey(1)  # Allow OpenCV to update the window
         #time.sleep(1)
