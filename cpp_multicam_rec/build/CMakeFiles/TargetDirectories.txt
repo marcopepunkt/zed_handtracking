@@ -1,0 +1,3 @@
+/home/aidara/zed_handtracking/cpp_multicam_rec/build/CMakeFiles/ZED_SVO_Recording_Multi.dir
+/home/aidara/zed_handtracking/cpp_multicam_rec/build/CMakeFiles/edit_cache.dir
+/home/aidara/zed_handtracking/cpp_multicam_rec/build/CMakeFiles/rebuild_cache.dir

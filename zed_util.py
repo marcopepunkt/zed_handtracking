@@ -3,7 +3,7 @@ import pyzed.sl as sl
 def init_zed(calib_path):
     init = sl.InitParameters()
     init.camera_resolution = sl.RESOLUTION.HD720
-    init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
+    init.camera_fps = 15  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
 
