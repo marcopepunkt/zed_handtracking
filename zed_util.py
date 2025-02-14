@@ -60,11 +60,13 @@ class MultiCamSync:
 class CameraData:
     def __init__(self, camera_id, intrinsics, extrinsics):
         self.camera_id = camera_id
-        self.intrinsics = np.array(intrinsics)
+        self.intrinsics = None
         self.extrinsics = np.array(extrinsics)
         
     def get_projection_matrix(self):
-        return self.intrinsics @ self.extrinsics[:3, :]
+        world_to_camera = np.linalg.inv(self.extrinsics)
+        return self.intrinsics @ world_to_camera[:3, :]
+
    
     def init_zed(self, svo_input_path):
             # loads the svo2 file and returns the frames of the depth and the left color image
@@ -72,9 +74,10 @@ class CameraData:
         init_params.set_from_svo_file(svo_input_path)
         init_params.svo_real_time_mode = False  # Don't convert in realtime
         init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use milliliter units (for depth measurements)
-        init_params.depth_mode = sl.DEPTH_MODE.ULTRA 
+        init_params.depth_mode = sl.DEPTH_MODE.NEURAL 
         init_params.camera_resolution = sl.RESOLUTION.HD1080
         
+                
         zed = sl.Camera()
 
         # Open the SVO file specified as a parameter
@@ -83,6 +86,13 @@ class CameraData:
             sys.stdout.write(repr(err))
             zed.close()
             exit()
+        cam_config = zed.get_camera_information().camera_configuration
+        self.width = cam_config.resolution.width
+        self.height = cam_config.resolution.height
+        
+        intr = cam_config.calibration_parameters.left_cam 
+        fx, fy, cx, cy = intr.fx, intr.fy, intr.cx, intr.cy
+        self.intrinsics = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
             
         self.zed = zed
     
