@@ -64,8 +64,12 @@ class CameraData:
         self.extrinsics = np.array(extrinsics)
         
     def get_projection_matrix(self):
-        world_to_camera = np.linalg.inv(self.extrinsics)
-        return self.intrinsics @ world_to_camera[:3, :]
+        # Suppose that the extrisics matrix is camera to world
+        # T_wc = np.linalg.inv(self.extrinsics)
+        # R_wc = T_wc[:3, :3]
+        # t_wc = T_wc[:3, 3]
+        # Rt = np.hstack((R_wc, t_wc.reshape(3, 1)))  
+        return self.intrinsics @ self.extrinsics[:3, :4]
 
    
     def init_zed(self, svo_input_path):
@@ -95,6 +99,8 @@ class CameraData:
         self.intrinsics = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
             
         self.zed = zed
+        
+        print(f"Camera {self.camera_id} initialized.")
     
 
 
