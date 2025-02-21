@@ -237,7 +237,8 @@ class Markers:
         finger_tip = self.keypoints[0]
         thumb = self.keypoints[2]
         foward_vector = self._normal_to_line(thumb, finger_base, finger_tip)
-        return self._create_homogeneous_matrix(base, foward_vector + finger_base, thumb)
+        forward_point = base + foward_vector
+        return self._create_homogeneous_matrix(base, foward_vector + base, thumb), forward_point
     
     def _normal_to_line(self, P1, P2, P3):
         """
@@ -424,7 +425,8 @@ def main():
         else:  
             keypoints = markers.track_markers(blobs_dict)
             vis.visualize_points(keypoints, color = [(255, 0, 0),(0, 255, 0),(0, 0, 255)])
-            hand_coord_frame = markers.get_hand_pose()
+            hand_coord_frame, point = markers.get_hand_pose()
+            #vis.visualize_points([point], color = (0, 0, 0))
             hand_frame_vis.update(hand_coord_frame)
 
         
