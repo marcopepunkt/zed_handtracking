@@ -1,6 +1,8 @@
 import pyzed.sl as sl
 import numpy as np
 import time
+import os
+import yaml
 
 def init_zed(calib_path):
     init = sl.InitParameters()
@@ -45,12 +47,12 @@ class MultiCamSync:
         for cam in self.cams[1:]:
             other_timestamp = cam.zed.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_milliseconds()
             if other_timestamp > timestamp:
-                print("SKIPPED A FRAME")
+                #print("SKIPPED A FRAME")
                 continue
             elif other_timestamp < timestamp - 33 - 33:
                 if cam.zed.grab() != sl.ERROR_CODE.SUCCESS: return sl.ERROR_CODE.FAILURE
                 if cam.zed.grab() != sl.ERROR_CODE.SUCCESS: return sl.ERROR_CODE.FAILURE     
-                print("SOME EXTRA GRABBING") 
+                #print("SOME EXTRA GRABBING") 
             else:
                 if cam.zed.grab() != sl.ERROR_CODE.SUCCESS: return sl.ERROR_CODE.FAILURE 
             
@@ -101,6 +103,28 @@ class CameraData:
         self.zed = zed
         
         print(f"Camera {self.camera_id} initialized.")
+        
+    
+    
+def load_camera_calib(id = None, path = "calibration_output"):
+    """This function loads the camera calibration parameters from a yaml file. If an ID 
+    :2#iterate over all files in the folder calibration_output
+    is provided, it will only load the calibration parameters for that camera"""
+    cams = []
+    for idx,file in enumerate(os.listdir(path)):
+        #open the file
+        fullpath = os.path.join(path, file)
+        with open(fullpath, 'r') as stream:
+            try:
+                data = yaml.safe_load(stream)
+                if id is not None and data["id"] != id:
+                    continue
+                #create a camera object
+                cams.append(CameraData(data["id"],data['intr_3x3'],data['extr_4x4']))
+            except yaml.YAMLError as exc:
+                print(exc)
+    return cams
+    
     
 
 
