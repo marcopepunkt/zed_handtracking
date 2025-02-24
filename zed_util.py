@@ -3,6 +3,7 @@ import numpy as np
 import time
 import os
 import yaml
+import sys
 
 def init_zed(calib_path):
     init = sl.InitParameters()

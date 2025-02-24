@@ -70,6 +70,18 @@ class RobotSim:
 
         return joint_transforms
     
+    def get_joint_angles(self):
+        """
+        Get the joint angles of the robot.
+        Returns:
+            A list of joint angles in radians.
+        """
+        joint_angles = []
+        for joint in self.movable_joints:
+            joint_angles.append(p.getJointState(self.robot_id, joint)[0])
+
+        return joint_angles
+    
     def _transform_to_pos_quat(self, T):
         """
         Converts a homogeneous transformation matrix (4x4) into position (xyz) and quaternion (xyzw).

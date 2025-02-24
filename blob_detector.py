@@ -1,4 +1,5 @@
 from typing import Dict
+import json
 
 import cv2
 import numpy as np
@@ -231,8 +232,7 @@ class Markers:
         assert X.shape[1] == len(uv[0]), "The number of points must be the same"
         
         return X[:3].T
-        
-        
+          
     def get_hand_pose(self):
         base = np.mean(self.keypoints[1:3], axis = 0)
         finger_base = self.keypoints[1]
@@ -335,6 +335,14 @@ def blob_detection(image_np, cam_id):
 
     return centers
 
+def save_tracking_data(data, file_path="tracking_data.json"):
+    """
+    Saves joint angles, camera extrinsics/intrinsics, and robot base transformation to a JSON file.
+    """
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)
+    
+    print(f"Calibration data saved to {file_path}")
 
 def main():
     # Load the calibration data
@@ -358,7 +366,7 @@ def main():
     # rotate 90° around x axis, since this is somehow off.
     robot_base_transform[:3, 3] =  robot_base_transform[:3, :3] @np.array([500, 0, -500]) 
     
-    robot = RobotSim(robot_base_transform=robot_base_transform,  visualization=True)
+    robot = RobotSim(robot_base_transform=robot_base_transform,  visualization=False)
     print("Initialized virtual robot")   
     
     # Add the cameras and the robot base to the o3d visualizer
@@ -367,6 +375,20 @@ def main():
     num_joints = robot.num_joints
     robot_frames_vis = CoordFrameVis(vis,num_coord_frame=num_joints,origin=robot_base_transform)
     print("Initialized Visualizer") 
+    
+    calibration_data = {
+        "robot": {
+            "base_transform": robot_base_transform.tolist(),
+            "joint_angles": []
+        },
+        "cameras": [
+            {
+                "camera_id": cam.camera_id,
+                "intrinsics": cam.intrinsics.tolist(),
+                "extrinsics": cam.extrinsics.tolist()
+            } for cam in cams
+        ]
+    }
     
     image_mat = sl.Mat()
     depth_mat = sl.Mat()
@@ -425,7 +447,7 @@ def main():
                     cv2.circle(img, (int(matched_uv[0]), int(matched_uv[1])), 5, blob_colors[blob_id], -1)
                     #cv2.putText(img, f"At point {matched_xyzs[blob_id]}", (int(matched_uv[0]) + 10 , int(matched_uv[1]) -10 ), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                 #uv.append(centers)
-                #cv2.imshow(f"Camera {id}", img)
+                cv2.imshow(f"Camera {id}", img)
 
         # Now we consistent indices for the blobs
         # If the number of markers changes, we will set a flag to rematch the markers
@@ -450,11 +472,17 @@ def main():
             joint_transforms = robot.get_joint_transformations()
             robot_frames_vis.update(joint_transforms)
             
+            joint_angles = robot.get_joint_angles()
+            calibration_data["robot"]["joint_angles"].append(joint_angles)
+
+            
 
         
         cv2.waitKey(1)  # Allow OpenCV to update the window
     # Then get the uv coordinates from the image for the blob and call 
     robot.stop()
+    print("Saving tracking data...")
+    save_tracking_data(calibration_data)
     print("done")
     
 
