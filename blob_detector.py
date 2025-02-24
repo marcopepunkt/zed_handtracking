@@ -1,14 +1,16 @@
+from typing import Dict
+
 import cv2
 import numpy as np
 import pyzed.sl as sl
-import sys
-import open3d as o3d
-import time
+
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
-from visualizer import open3d_visualizer, HandFrame
+from scipy.spatial.transform import Rotation
+
+from visualizer import open3d_visualizer, CoordFrameVis
 from zed_util import MultiCamSync, CameraData, load_camera_calib
-from typing import Dict
+from robot_simulator import RobotSim
 
 NUM_BLOBS = 3
 color_dict = {39725782: (221, 0, 252), 38580376: (0, 255, 238)}
@@ -347,11 +349,25 @@ def main():
         blobs_dict[cam.camera_id] = Blobs(cam.camera_id, NUM_BLOBS)
     
     frame_grabber = MultiCamSync(cams)
+    print("Initialized cameras")
     
-    vis = open3d_visualizer(cams)
-    hand_frame_vis = HandFrame(vis)
-    print("Initialized cameras")    
-
+    robot_base_transform = np.eye(4)
+     # We assume, that one camera is horizontal
+    robot_rot_mat = cams[1].extrinsics[:3,:3]
+    robot_base_transform[:3, :3] = robot_rot_mat.T  @ Rotation.from_euler('x', 90, degrees=True).as_matrix() 
+    # rotate 90° around x axis, since this is somehow off.
+    robot_base_transform[:3, 3] =  robot_base_transform[:3, :3] @np.array([500, 0, -500]) 
+    
+    robot = RobotSim(robot_base_transform=robot_base_transform,  visualization=True)
+    print("Initialized virtual robot")   
+    
+    # Add the cameras and the robot base to the o3d visualizer
+    vis = open3d_visualizer(cams, robot_base_transform = robot_base_transform)
+    hand_frame_vis = CoordFrameVis(vis)
+    num_joints = robot.num_joints
+    robot_frames_vis = CoordFrameVis(vis,num_coord_frame=num_joints,origin=robot_base_transform)
+    print("Initialized Visualizer") 
+    
     image_mat = sl.Mat()
     depth_mat = sl.Mat()
     xyz_mat = sl.Mat()
@@ -427,12 +443,20 @@ def main():
             vis.visualize_points(keypoints, color = [(255, 0, 0),(0, 255, 0),(0, 0, 255)])
             hand_coord_frame, point = markers.get_hand_pose()
             #vis.visualize_points([point], color = (0, 0, 0))
-            hand_frame_vis.update(hand_coord_frame)
+            hand_frame_vis.update([hand_coord_frame])
+            
+            hand_coord_frame[:3, :3] = hand_coord_frame[:3, :3] @ Rotation.from_euler('y', 90, degrees=True).as_matrix()
+            robot.do_inverse_kinematics(hand_coord_frame)
+            joint_transforms = robot.get_joint_transformations()
+            robot_frames_vis.update(joint_transforms)
+            
 
         
         cv2.waitKey(1)  # Allow OpenCV to update the window
     # Then get the uv coordinates from the image for the blob and call 
+    robot.stop()
     print("done")
+    
 
 if __name__ == "__main__":  
     main()   
