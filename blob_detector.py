@@ -1,5 +1,7 @@
 from typing import Dict
 import json
+import argparse
+import os
 
 import cv2
 import numpy as np
@@ -335,7 +337,7 @@ def blob_detection(image_np, cam_id):
 
     return centers
 
-def save_tracking_data(data, file_path="tracking_data.json"):
+def save_tracking_data(data, file_path):
     """
     Saves joint angles, camera extrinsics/intrinsics, and robot base transformation to a JSON file.
     """
@@ -344,16 +346,17 @@ def save_tracking_data(data, file_path="tracking_data.json"):
     
     print(f"Calibration data saved to {file_path}")
 
-def main():
+def main(args):
     # Load the calibration data
     global rematch_markers
     rematch_markers = True
     
     blobs_dict : Dict[int,Blobs] = {}
     markers = None
-    cams = load_camera_calib()
+    cams = load_camera_calib(path = "/home/aidara/augmented_imitation_learning/data_storage/calibration_output")
     for cam in cams: 
-        cam.init_zed(f"cpp_multicam_rec/build/SVO_SN{cam.camera_id}.svo2")
+        path = "/home/aidara/augmented_imitation_learning/data_storage/" + args.project_name + f"/SVO_SN{cam.camera_id}.svo2"
+        cam.init_zed(path) #f"cpp_multicam_rec/build/SVO_SN{cam.camera_id}.svo2")
         blobs_dict[cam.camera_id] = Blobs(cam.camera_id, NUM_BLOBS)
     
     frame_grabber = MultiCamSync(cams)
@@ -370,30 +373,41 @@ def main():
     print("Initialized virtual robot")   
     
     # Add the cameras and the robot base to the o3d visualizer
-    vis = open3d_visualizer(cams, robot_base_transform = robot_base_transform)
-    hand_frame_vis = CoordFrameVis(vis)
-    num_joints = robot.num_joints
-    robot_frames_vis = CoordFrameVis(vis,num_coord_frame=num_joints,origin=robot_base_transform)
-    print("Initialized Visualizer") 
+    if args.visuals:
+        vis = open3d_visualizer(cams, robot_base_transform = robot_base_transform)
+        hand_frame_vis = CoordFrameVis(vis)
+        num_joints = robot.num_joints
+        robot_frames_vis = CoordFrameVis(vis,num_coord_frame=num_joints,origin=robot_base_transform)
+        print("Initialized Visualizer") 
     
-    calibration_data = {
+    tracking_data = {
         "robot": {
-            "base_transform": robot_base_transform.tolist(),
-            "joint_angles": []
+            "base_transform": np.eye(4).tolist(),
+            "states": [],
         },
         "cameras": [
             {
                 "camera_id": cam.camera_id,
                 "intrinsics": cam.intrinsics.tolist(),
-                "extrinsics": cam.extrinsics.tolist()
+                "extrinsics": (np.linalg.inv(robot_base_transform) @ np.linalg.inv(cam.extrinsics)).tolist()
             } for cam in cams
         ]
     }
+    
+    # Define the folder path
+    folder_path = f"/home/aidara/augmented_imitation_learning/data_storage/{args.project_name}/raw_images"
+
+    # Check if the folder exists, and create it if not
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
     
     image_mat = sl.Mat()
     depth_mat = sl.Mat()
     xyz_mat = sl.Mat()
     loop = True
+    
+    timestep = 0
+    
     while loop:
         img_list = []
         if frame_grabber.grab_frames() != sl.ERROR_CODE.SUCCESS:
@@ -416,7 +430,14 @@ def main():
             transform = cam.extrinsics
             
             # save image as png to select the hsv values
-            # cv2.imwrite(f"input/image_{id}.png", img)
+            # check if raw_images folder exists
+            
+            
+
+            # Save the image
+            cv2.imwrite(f"{folder_path}/{id}_{timestep}.png", img)
+                        
+            #cv2.imwrite(f"home/aidara/augmented_imitation_learning/data_storage/{args.project_name}/raw_images/{id}_{timestep}.png", img)
             
             # Blob detection 
             blob_centers = blob_detection(img, id)
@@ -447,9 +468,10 @@ def main():
                     cv2.circle(img, (int(matched_uv[0]), int(matched_uv[1])), 5, blob_colors[blob_id], -1)
                     #cv2.putText(img, f"At point {matched_xyzs[blob_id]}", (int(matched_uv[0]) + 10 , int(matched_uv[1]) -10 ), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                 #uv.append(centers)
-                cv2.imshow(f"Camera {id}", img)
-
-        # Now we consistent indices for the blobs
+                if args.visuals:
+                    cv2.imshow(f"Camera {id}", img)
+               
+        # Now we have consistent indices for the blobs
         # If the number of markers changes, we will set a flag to rematch the markers
         
         if markers is None:
@@ -457,36 +479,58 @@ def main():
             try: 
                 markers = Markers(blobs_dict, cams) 
                 keypoints = markers.keypoints
-                vis.visualize_points(keypoints, color = (0, 0, 0))  
+                if args.visuals:
+                    vis.visualize_points(keypoints, color = (0, 0, 0))  
             except ValueError:
                 print("Could not initialize markers")
         else:  
+            store_state_dict = {}
+            store_state_dict["id"] = timestep
+            
             keypoints = markers.track_markers(blobs_dict)
-            vis.visualize_points(keypoints, color = [(255, 0, 0),(0, 255, 0),(0, 0, 255)])
+            if args.visuals:
+                vis.visualize_points(keypoints, color = [(255, 0, 0),(0, 255, 0),(0, 0, 255)])
             hand_coord_frame, point = markers.get_hand_pose()
             #vis.visualize_points([point], color = (0, 0, 0))
-            hand_frame_vis.update([hand_coord_frame])
+            if args.visuals:
+                hand_frame_vis.update([hand_coord_frame])
             
             hand_coord_frame[:3, :3] = hand_coord_frame[:3, :3] @ Rotation.from_euler('y', 90, degrees=True).as_matrix()
+            
+            robot_goal_frame = np.linalg.inv(robot_base_transform) @ hand_coord_frame
+            
+            #calibration_data["robot"]["goal_poses"].append(robot_goal_frame.tolist())
+            store_state_dict["goal_position"] = robot_goal_frame.tolist()
+            
             robot.do_inverse_kinematics(hand_coord_frame)
             joint_transforms = robot.get_joint_transformations()
-            robot_frames_vis.update(joint_transforms)
+            if args.visuals:
+                robot_frames_vis.update(joint_transforms)
             
             joint_angles = robot.get_joint_angles()
-            calibration_data["robot"]["joint_angles"].append(joint_angles)
+            #calibration_data["robot"]["joint_angles"].append(joint_angles)
+            store_state_dict["joint_angles"] = joint_angles
 
-            
+            tracking_data["robot"]["states"].append(store_state_dict)
 
+        timestep += 1
         
         cv2.waitKey(1)  # Allow OpenCV to update the window
     # Then get the uv coordinates from the image for the blob and call 
     robot.stop()
     print("Saving tracking data...")
-    save_tracking_data(calibration_data)
+    save_tracking_data(tracking_data, file_path= f"/home/aidara/augmented_imitation_learning/data_storage/{args.project_name}/tracking_data.json")
     print("done")
     
 
 if __name__ == "__main__":  
-    main()   
+    parser = argparse.ArgumentParser(description="Calibrate ZED cameras")
+    parser.add_argument("--project_name", type=str, help="Name of the project")
+    parser.add_argument("--visuals", action="store_true", help="Enable visualization")
+    args = parser.parse_args()
+    
+    print("Doing the project: ", args.project_name)
+    print("Visuals: ", args.visuals)
+    main(args)   
     
     

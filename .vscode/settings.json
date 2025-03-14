@@ -1,5 +1,6 @@
 {
     "files.associations": {
         "ostream": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/aidara/augmented_imitation_learning/zed_handtracking/cpp_multicam_rec"
 }

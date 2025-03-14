@@ -148,3 +148,22 @@ class CoordFrameVis:
             
         self.vis.vis.poll_events()
         self.vis.vis.update_renderer()
+        
+        
+if __name__ == "__main__":
+    # load the tracking_data.json file
+    import json
+    with open("tracking_data.json") as f:
+        tracking_data = json.load(f)
+    robot = tracking_data["robot"]
+    cameras = tracking_data["cameras"]
+    robot_base_transform = np.array(robot["base_transform"]).reshape(4,4)
+    goal_poses = np.array(robot["goal_poses"]).reshape(4,4)
+    
+    open3d_visualizer = open3d_visualizer(cameras, robot_base_transform)
+    
+    for cam in cameras:
+        extrinsics = np.array(cam["extrinsics"]).reshape(4,4)
+        
+        
+        

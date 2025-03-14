@@ -107,7 +107,7 @@ class CameraData:
         
     
     
-def load_camera_calib(id = None, path = "calibration_output"):
+def load_camera_calib(path, id = None):
     """This function loads the camera calibration parameters from a yaml file. If an ID 
     :2#iterate over all files in the folder calibration_output
     is provided, it will only load the calibration parameters for that camera"""
