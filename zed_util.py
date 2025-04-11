@@ -7,7 +7,7 @@ import sys
 
 def init_zed(calib_path):
     init = sl.InitParameters()
-    init.camera_resolution = sl.RESOLUTION.HD720
+    init.camera_resolution = sl.RESOLUTION.HD1080
     init.camera_fps = 15  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
@@ -56,6 +56,7 @@ class MultiCamSync:
                 #print("SOME EXTRA GRABBING") 
             else:
                 if cam.zed.grab() != sl.ERROR_CODE.SUCCESS: return sl.ERROR_CODE.FAILURE 
+        
             
         return sl.ERROR_CODE.SUCCESS
     
@@ -102,7 +103,7 @@ class CameraData:
         self.intrinsics = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
             
         self.zed = zed
-        
+        zed.grab()
         print(f"Camera {self.camera_id} initialized.")
         
     

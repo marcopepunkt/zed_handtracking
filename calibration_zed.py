@@ -66,6 +66,8 @@ def main(args):
             imgpoints.append(corners2)
         else:
             print("Chessboard corners not found.")
+            cv2.imshow("Projected points", image)
+            cv2.waitKey()
             exit()
 
         """ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], intrinsics_mat[cam_idx], disto[cam_idx],

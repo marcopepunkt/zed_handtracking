@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
 
+
         {
             "name": "Calibration",
             "type": "debugpy",
@@ -12,6 +13,15 @@
             "program": "${workspaceFolder}/calibration_zed.py",
             "console": "integratedTerminal",
             "args" : ["--calib_svo_path", "calibration_data", "--calib_output_path", "calibration_output"]
+        },
+
+        {
+            "name": "Blob Detection",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/blob_detector.py",
+            "console": "integratedTerminal",
+            "args" : ["--project_name", "threecolor_movement", "--visuals"]
         }
     ]
 }
