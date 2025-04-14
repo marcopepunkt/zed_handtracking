@@ -29,7 +29,7 @@ cv2.createTrackbar("UV", "Tracking", 255, 255, nothing)
 cv2.createTrackbar("Brightness", "Tracking", 100, 200, nothing)  # 100 = original brightness
 
 # Read test image
-frame = cv2.imread("/home/aidara/augmented_imitation_learning/data_storage/threecolor_movement/raw_images/39725782_0.png")
+frame = cv2.imread("/home/aidara/augmented_imitation_learning/data_storage/threecolor_movement/raw_images/36829049_51.png")
 
 cv2.setMouseCallback('Tracking', click_event)
 

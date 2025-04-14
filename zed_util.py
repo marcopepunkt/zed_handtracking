@@ -57,7 +57,7 @@ class MultiCamSync:
             else:
                 if cam.zed.grab() != sl.ERROR_CODE.SUCCESS: return sl.ERROR_CODE.FAILURE 
         
-            
+        
         return sl.ERROR_CODE.SUCCESS
     
     
@@ -104,7 +104,24 @@ class CameraData:
             
         self.zed = zed
         zed.grab()
+        
+        self.image_mat = sl.Mat()
+        self.depth_mat = sl.Mat()
+        self.xyz_mat = sl.Mat()
         print(f"Camera {self.camera_id} initialized.")
+    
+    def retrieve_data(self):
+        # Retrieve the left image and depth data
+        self.zed.retrieve_image(self.image_mat, sl.VIEW.LEFT)
+        self.zed.retrieve_measure(self.depth_mat, sl.MEASURE.DEPTH)
+        self.zed.retrieve_measure(self.xyz_mat, sl.MEASURE.XYZRGBA)
+        
+        # Convert to numpy arrays
+        img = self.image_mat.get_data()[:, :, :3] 
+        self.image = img.astype(np.uint8)  
+        self.depth = self.depth_mat.get_data()
+        self.xyz = self.xyz_mat.get_data()
+        
         
     
     
