@@ -48,9 +48,9 @@ def main(args):
         cam.init_zed(path) #f"cpp_multicam_rec/build/SVO_SN{cam.camera_id}.svo2")
     
     # This initializes the relevant parts of the Markertracking
-    thumb = SphereMarker(cams,hsv_limits=[[44,100,45],[72,251,255]])
-    index_base = SphereMarker(cams,hsv_limits=[[129,165,74],[255,255,255]])
-    index_tip = SphereMarker(cams,hsv_limits=[[0,193,46],[42,255,255]])
+    thumb = SphereMarker(cams,hsv_limits=[[44,100,45],[72,251,255]]) # Green
+    index_base = SphereMarker(cams,hsv_limits=[[129,165,74],[255,255,255]]) # Blue
+    index_tip = SphereMarker(cams,hsv_limits=[[0,193,46],[42,255,255]]) # Red
     hand = None
     
     frame_grabber = MultiCamSync(cams)
@@ -98,6 +98,9 @@ def main(args):
     
     while loop:
         timestep += 1
+        
+        # if timestep > 500:
+        #     break
 
         # This is the frame grabber that synchronizes the cameras
         # It grabs the frames 
@@ -111,7 +114,7 @@ def main(args):
             cam.retrieve_data()
             
             # Save the image
-            #cv2.imwrite(f"{folder_path}/{cam.camera_id}_{timestep}.png", cam.image)
+            cv2.imwrite(f"{folder_path}/{cam.camera_id}_{timestep}.png", cam.image)
             # Save the depth image
             #print(f"Saved Image to {folder_path}/{cam.camera_id}_{timestep}.png")      
             # if args.visuals:

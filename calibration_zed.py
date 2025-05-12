@@ -6,6 +6,8 @@ import yaml
 import pyzed.sl as sl
 
 from zed_util import init_zed
+from datetime import datetime
+import os
 
 chessboard_size = (11, 8)  # Change this to your chessboard's size
 square_size = 30  # Define the real-world size of a square in mm
@@ -98,6 +100,7 @@ def main(args):
             cv2.waitKey()
             cv2.destroyAllWindows()
             
+            os.makedirs(args.calib_output_path, exist_ok=True)
             with open(rf"{args.calib_output_path}/extr_{cam_idx}_{zed_serials[cam_idx]}.yml", 'w') as file:
                 yaml.dump({"id": zed_serials[cam_idx], 'extr_4x4': extr_4x4.tolist(), "intr_3x3": intrinsics_mat[cam_idx].tolist(), "disto": disto[cam_idx].tolist()}, file)
 
@@ -110,8 +113,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Args for camera calibration")
     # Must calibrate for each m -(machine) folder separately
     parser.add_argument('--calib_svo_path', type=str, default=None, help="Path to folder with calibration SVO files.")
-    parser.add_argument('--calib_output_path', type=str, default=None, help="Output folder for calibration files.")
-
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    parser.add_argument('--calib_output_path', type=str, default=f"./calibration_output/{current_time}", help="Output folder for calibration files.")
     args = parser.parse_args()
     
     main(args)
