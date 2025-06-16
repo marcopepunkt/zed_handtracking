@@ -1,5 +1,8 @@
 import cv2
-import numpy as np;
+import numpy as np
+from blob_detector import get_cam_config
+from zed_util import load_camera_calib
+import argparse
 
 # Just dummy function for callbacks from trackbar
 def nothing(x):
@@ -19,17 +22,24 @@ def click_event(event, x, y, flags, params):
 
 # Create a trackbar window to adjust the HSV values
 # They are preconfigured for a yellow object 
+cam = 39725782
+calib_path = "/home/aidara/augmented_imitation_learning/zed_handtracking/calibration_output/20250606_125919"
+args = argparse.Namespace(calib_path=calib_path)
+cams = load_camera_calib(calib_path)
+hsv_limits = get_cam_config(args, cams)
+frame = cv2.imread(f"/home/aidara/augmented_imitation_learning/data_storage/Cube_in_box/fix_start_fix_end_0_Episode_0/raw_images/{cam}_raw.png")
+finger ="index_base" # "thumb" ,"index_base", "index_tip"
+hsv_limits = hsv_limits[finger][cam]
 cv2.namedWindow("Tracking")
-cv2.createTrackbar("LH", "Tracking", 0,255, nothing)
-cv2.createTrackbar("LS", "Tracking", 225, 255, nothing)
-cv2.createTrackbar("LV", "Tracking", 122, 255, nothing)
-cv2.createTrackbar("UH", "Tracking", 15, 255, nothing)
-cv2.createTrackbar("US", "Tracking", 255, 255, nothing)
-cv2.createTrackbar("UV", "Tracking", 255, 255, nothing)
+cv2.createTrackbar("LH", "Tracking", hsv_limits[0][0],255, nothing)
+cv2.createTrackbar("LS", "Tracking", hsv_limits[0][1],255, nothing)
+cv2.createTrackbar("LV", "Tracking", hsv_limits[0][2],255, nothing)
+cv2.createTrackbar("UH", "Tracking", hsv_limits[1][0],255, nothing)
+cv2.createTrackbar("US", "Tracking", hsv_limits[1][1],255, nothing)
+cv2.createTrackbar("UV", "Tracking", hsv_limits[1][2],255, nothing)
 cv2.createTrackbar("Brightness", "Tracking", 100, 200, nothing)  # 100 = original brightness
 
 # Read test image
-frame = cv2.imread("/home/aidara/augmented_imitation_learning/data_storage/threecolor_movement/raw_images/36829049_51.png")
 
 cv2.setMouseCallback('Tracking', click_event)
 
@@ -57,8 +67,6 @@ while True:
     # Apply HSV thresholds 
     mask = cv2.inRange(hsv, hsvMin, hsvMax)
     
-    bounding_box_robot_base = ((987,331), (1176,482)) # Top left and bottom right corners
-    mask = cv2.rectangle(mask, bounding_box_robot_base[0], bounding_box_robot_base[1], (0, 0, 0), -1)
     
     
     # Uncomment the lines below to see the effect of erode and dilate

@@ -4,10 +4,11 @@ import time
 import os
 import yaml
 import sys
+import cv2
 
 def init_zed(calib_path):
     init = sl.InitParameters()
-    init.camera_resolution = sl.RESOLUTION.HD1080
+    init.camera_resolution = sl.RESOLUTION.HD720
     init.camera_fps = 15  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
@@ -67,6 +68,7 @@ class CameraData:
         self.intrinsics = None
         self.extrinsics = np.array(extrinsics)
         
+        
     def get_projection_matrix(self):
         # Suppose that the extrisics matrix is camera to world
         # T_wc = np.linalg.inv(self.extrinsics)
@@ -83,9 +85,8 @@ class CameraData:
         init_params.svo_real_time_mode = False  # Don't convert in realtime
         init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use milliliter units (for depth measurements)
         init_params.depth_mode = sl.DEPTH_MODE.NEURAL 
-        init_params.camera_resolution = sl.RESOLUTION.HD1080
-        
-                
+        init_params.camera_resolution = sl.RESOLUTION.HD720
+                       
         zed = sl.Camera()
 
         # Open the SVO file specified as a parameter
@@ -109,6 +110,20 @@ class CameraData:
         self.depth_mat = sl.Mat()
         self.xyz_mat = sl.Mat()
         print(f"Camera {self.camera_id} initialized.")
+        
+        # # Save the first frame
+        # self.retrieve_data()
+        
+        # Set empty_frame from {cam_id}_keyframe.jpg in the same folder as the SVO file
+        svo_dir = os.path.dirname(svo_input_path)
+        keyframe_path = os.path.join(svo_dir, f"{self.camera_id}_keyframe.jpg")
+        if os.path.exists(keyframe_path):
+            self.empty_frame = cv2.imread(keyframe_path)
+        else:
+            print(f"Warning: Keyframe not found at {keyframe_path}, using current image.")
+            self.retrieve_data()
+            self.empty_frame = self.image.copy()
+        
     
     def retrieve_data(self):
         # Retrieve the left image and depth data
@@ -121,16 +136,65 @@ class CameraData:
         self.image = img.astype(np.uint8)  
         self.depth = self.depth_mat.get_data()
         self.xyz = self.xyz_mat.get_data()
+    
+    
+    def remove_human(self):
+        """This function removes the human from the image"""
+        if self.cube_color is None:
+            raise ValueError("Cube color not specified")
         
+        
+        # Convert image to HSV for color-based segmentation
+        hsv = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
+        
+        lower_bound = np.array(self.cube_color[0])
+        upper_bound = np.array(self.cube_color[1])
+        
+        # Create mask for the cube
+        cube_mask = cv2.inRange(hsv, lower_bound, upper_bound)
+        
+        # Clean up the mask using morphological operations
+        kernel = np.ones((5, 5), np.uint8)
+        cube_mask = cv2.morphologyEx(cube_mask, cv2.MORPH_OPEN, kernel)
+        cube_mask = cv2.morphologyEx(cube_mask, cv2.MORPH_CLOSE, kernel)
+        
+        # Create inverse mask for everything except the cube
+        inverse_mask = cv2.bitwise_not(cube_mask)
+        
+        # Extract only the cube from the current frame
+        cube_only = cv2.bitwise_and(self.image, self.image, mask=cube_mask)
+        
+        # Extract everything except the cube from the empty frame
+        background = cv2.bitwise_and(self.empty_frame, self.empty_frame, mask=inverse_mask)
+        
+        self.cleaned_depth = cv2.bitwise_and(self.depth, self.depth, mask=cube_mask)
+        # self.normalized_depth = cv2.normalize(self.depth, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+        # self.normalized_cleaned_depth = cv2.normalize(self.cleaned_depth, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+        
+        
+        # cv2.imshow(f"Depth Cam {self.camera_id}", self.normalized_depth)
+        # cv2.imshow(f"Cleaned Depth Cam {self.camera_id}", self.normalized_cleaned_depth)
+        
+        
+        
+        # Combine the cube with the background from empty frame
+        self.cleaned_frame = cv2.add(cube_only, background)
+        
+        #return self.cleaned_frame
         
     
     
-def load_camera_calib(path, id = None):
+def load_camera_calib(path, id = None)-> list[CameraData]:
     """This function loads the camera calibration parameters from a yaml file. If an ID 
     :2#iterate over all files in the folder calibration_output
     is provided, it will only load the calibration parameters for that camera"""
     cams = []
     for idx,file in enumerate(os.listdir(path)):
+        
+        # Check if the file is a YAML file
+        if not file.endswith(('.yaml', '.yml')):
+            continue
+        
         #open the file
         fullpath = os.path.join(path, file)
         with open(fullpath, 'r') as stream:

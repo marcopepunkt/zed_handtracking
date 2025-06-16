@@ -21,7 +21,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/blob_detector.py",
             "console": "integratedTerminal",
-            "args" : ["--project_name", "threecolor_movement", "--visuals"]
+            "args" : ["--project_name", "put_in_box", "--visuals", "--original_path", "/home/aidara/augmented_imitation_learning/multicam_recording/RawData/250511/fix_start_fix_end_0", "--calib_path", "/home/aidara/augmented_imitation_learning/zed_handtracking/calibration_output/20250511_120328"]
         }
     ]
 }

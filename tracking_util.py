@@ -12,28 +12,161 @@ from scipy.spatial.distance import cdist
     
 
 class SphereMarker:
-    def __init__(self, cams,hsv_limits):
-        self.hsv_limits = hsv_limits
+    def __init__(self, cams, hsv_limits):
         self.cams = cams
+        self.hsv_limits = hsv_limits
         self.pos = None
         self.processing_dict = {cam: {"center": (0,0), "radius": 0} for cam in self.cams}
-
+        
+        # Track previously used cameras for stability
+        self.prev_cam1 = None
+        self.prev_cam2 = None
+        
+        # Track camera performance over time
+        self.cam_history = {cam: {'avg_radius': 0, 'count': 0} for cam in self.cams}
+        
+        # Consistency threshold - how many frames to consider before switching cameras
+        self.consistency_threshold = 5
+        
+        # Camera switch counter - tracks how many consecutive frames a new camera has been better
+        self.switch_counter = {}
+        for cam in self.cams:
+            self.switch_counter[cam] = 0
+            
     
     def process_new_frame(self):
+        # Store the previous position for stability
+        prev_pos = self.pos
+        
+        # Process frames from all cameras
         for cam in self.cams:
             center, radius = self.blob_detection(cam)
             if center is not None:
                 # Store the center and radius of the detected blob
                 self.processing_dict[cam]["center"] = center
                 self.processing_dict[cam]["radius"] = radius
+                
+                # Update camera history
+                history = self.cam_history[cam]
+                if history['count'] == 0:
+                    history['avg_radius'] = radius
+                else:
+                    # Exponential moving average with 0.8 weight for new data
+                    history['avg_radius'] = 0.8 * radius + 0.2 * history['avg_radius']
+                history['count'] += 1
             else: 
                 # If no blob is detected, set the radius to 0, so that the previous data is not lost, but has a low priority
                 self.processing_dict[cam]["radius"] = 0
-     
-        top_two = sorted(self.processing_dict.items(), key=lambda x: x[1]["radius"], reverse=True)[:2]
-        cam1, data1 = top_two[0]
-        cam2, data2 = top_two[1]
-        self.pos = self.triangulation(data1["center"], data2["center"], cam1, cam2)[0]
+        
+        # Ensure camera 39725782 is used if available and has a valid detection
+        preferred_cam_id = 39725782
+        preferred_cam = None
+        
+        # Find the preferred camera in our camera list
+        for cam in self.cams:
+            if cam.camera_id == preferred_cam_id:
+                preferred_cam = cam
+                break
+        
+        # Get all cameras with valid detections
+        valid_cams = {cam: data for cam, data in self.processing_dict.items() if data["radius"] > 0}
+        
+        if len(valid_cams) < 2:
+            # Not enough valid cameras for triangulation
+            return  # Keep the previous position
+        
+        # Determine which cameras to use
+        if self.prev_cam1 is not None and self.prev_cam2 is not None:
+            # Check if both previously used cameras are still valid
+            if (self.prev_cam1 in valid_cams and self.prev_cam2 in valid_cams and 
+                self.processing_dict[self.prev_cam1]["radius"] > 0 and 
+                self.processing_dict[self.prev_cam2]["radius"] > 0):
+                
+                # Get the current top two cameras by radius
+                top_two = sorted(valid_cams.items(), key=lambda x: x[1]["radius"], reverse=True)[:2]
+                top_cam1, top_data1 = top_two[0]
+                top_cam2, top_data2 = top_two[1]
+                
+                # Check if any of the top cameras is significantly better than our previous ones
+                # and update switch counters
+                for top_cam in [top_cam1, top_cam2]:
+                    if top_cam not in [self.prev_cam1, self.prev_cam2]:
+                        # If this top camera is not one of our previous cameras
+                        if self.processing_dict[top_cam]["radius"] > 1.5 * min(
+                            self.processing_dict[self.prev_cam1]["radius"],
+                            self.processing_dict[self.prev_cam2]["radius"]):
+                            # This camera is significantly better
+                            self.switch_counter[top_cam] += 1
+                        else:
+                            # Reset counter if not significantly better
+                            self.switch_counter[top_cam] = 0
+                
+                # Check if we should switch cameras
+                switch_cam = None
+                for cam, count in self.switch_counter.items():
+                    if count >= self.consistency_threshold:
+                        switch_cam = cam
+                        break
+                
+                if switch_cam:
+                    # Replace the camera with the lowest radius
+                    if self.processing_dict[self.prev_cam1]["radius"] < self.processing_dict[self.prev_cam2]["radius"]:
+                        self.prev_cam1 = switch_cam
+                    else:
+                        self.prev_cam2 = switch_cam
+                    # Reset all counters after a switch
+                    for cam in self.cams:
+                        self.switch_counter[cam] = 0
+                
+                # Use the current selected cameras
+                cam1, cam2 = self.prev_cam1, self.prev_cam2
+                
+            else:
+                # One or both previous cameras are no longer valid, select new ones
+                top_two = sorted(valid_cams.items(), key=lambda x: x[1]["radius"], reverse=True)[:2]
+                cam1, data1 = top_two[0]
+                cam2, data2 = top_two[1]
+                self.prev_cam1, self.prev_cam2 = cam1, cam2
+                # Reset switch counters
+                for cam in self.cams:
+                    self.switch_counter[cam] = 0
+        else:
+            # First run or reset, use the top two cameras
+            # Prioritize preferred camera if available
+            if preferred_cam and preferred_cam in valid_cams:
+                cam1 = preferred_cam
+                # Get the best camera that isn't the preferred one
+                other_cams = {cam: data for cam, data in valid_cams.items() if cam != preferred_cam}
+                if other_cams:
+                    cam2, _ = sorted(other_cams.items(), key=lambda x: x[1]["radius"], reverse=True)[0]
+                else:
+                    # If no other valid cameras, just use the next best one (shouldn't happen with 2+ cameras)
+                    other_cams = sorted(valid_cams.items(), key=lambda x: x[1]["radius"], reverse=True)
+                    if len(other_cams) > 1:
+                        cam2, _ = other_cams[1]
+                    else:
+                        return  # Not enough valid cameras
+            else:
+                # Preferred camera not available, use top two by radius
+                top_two = sorted(valid_cams.items(), key=lambda x: x[1]["radius"], reverse=True)[:2]
+                cam1, _ = top_two[0]
+                cam2, _ = top_two[1]
+            
+            # Store the selected cameras
+            self.prev_cam1, self.prev_cam2 = cam1, cam2
+        
+        # Get the data for the selected cameras
+        data1 = self.processing_dict[cam1]
+        data2 = self.processing_dict[cam2]
+        
+        # Calculate new position
+        new_pos = self.triangulation(data1["center"], data2["center"], cam1, cam2)[0]
+        
+        # Apply smoothing if we have a previous position
+        if prev_pos is not None:
+            self.pos = 0.8 * new_pos + 0.2 * prev_pos
+        else:
+            self.pos = new_pos
             
             
             
@@ -41,33 +174,33 @@ class SphereMarker:
     def blob_detection(self,cam):
         """This function detects blobs in an image and returns their centers"""
         
-        # if cam_id == 33137761:
-        #     bounding_box_robot_base = ((1530,300), (1800,700)) # Top left and bottom right corners
-        # elif cam_id == 36829049:
-        #         bounding_box_robot_base = ((199,560), (343,866)) # Top left and bottom right corners
-        # elif cam_id == 39725782:
-        #     bounding_box_robot_base = ((987,331), (1176,482)) # Top left and bottom right corners
-        # else:
-        #     raise ValueError("Base cutout is not definied for this camera")
-        
-        # image_np = cv2.rectangle(image_np, bounding_box_robot_base[0], bounding_box_robot_base[1], (0, 0, 0), -1)
-
         image_np = cam.image.copy()
+        image_np = cv2.GaussianBlur(image_np, (5, 5), 0)
+        # If a field of interest is defined for this camera, 
+        # create a mask by drawing a filled black rectangle outside the region
+        # This helps exclude areas we don't want to process
+        if hasattr(cam, 'field_of_interest') and cam.field_of_interest is not None:
+            # Create a black mask the size of the image
+            mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
+            # Fill the region of interest with white
+            cv2.rectangle(mask, cam.field_of_interest[0], cam.field_of_interest[1], 255, -1)
+            # Apply the mask to keep only the region of interest
+            image_np = cv2.bitwise_and(image_np, image_np, mask=mask)
+
         
         # Convert to HSV for easier color thresholding
         hsv = cv2.cvtColor(image_np, cv2.COLOR_BGR2HSV)
 
         #cv2.imshow(f"HSV {cam_id}", hsv)
-        
-        # Define orange color range (tune these as needed)
-        lower_hsv_limit = np.array(self.hsv_limits[0]) #np.array([5, 150, 123])
-        upper_hsv_limit = np.array(self.hsv_limits[1]) #np.array([14, 255, 255])
+        # Define orange color range (tune these as need^ed)
+        lower_hsv_limit = np.array(self.hsv_limits[cam.camera_id][0]) #np.array([5, 150, 123])
+        upper_hsv_limit = np.array(self.hsv_limits[cam.camera_id][1]) #np.array([14, 255, 255])
 
         # Threshold to get only orange
         mask = cv2.inRange(hsv, lower_hsv_limit, upper_hsv_limit)
         
         
-        #cv2.imshow(f"Theshhold Mask {cam_id}", mask)
+        #cv2.imshow(f"Theshhold Mask {cam.camera_id}", mask)
 
         # Clean up noise via opening/closing
         kernel = np.ones((3, 3), np.uint8)
@@ -89,7 +222,7 @@ class SphereMarker:
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
             (x, y), radius = cv2.minEnclosingCircle(largest_contour)
-            if radius > 5:
+            if radius > 4:
                 center = (int(x), int(y))
                 # Optional: draw the selected center
                 # cv2.imshow(f"Center Mask {cam.camera_id}", image_np)
