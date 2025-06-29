@@ -146,14 +146,19 @@ def process_segment(args, cams : List[CameraData], segment_start: int, segment_e
         "start_timestamp": segment_start,
         "end_timestamp": segment_end,
         "robot": {
-            "base_transform": np.eye(4).tolist(),
+            "base_transform": np.eye(4).tolist(), # This is later defined in IsaacSim
             "states": [],
         },
         "cameras": [
             {
                 "camera_id": cam.camera_id,
                 "intrinsics": cam.intrinsics.tolist(),
-                "extrinsics": (np.linalg.inv(robot_base_transform) @ np.linalg.inv(cam.extrinsics)).tolist()
+                "extrinsics": cam.extrinsics.tolist(),
+                "distortion": cam.distortion.tolist(),
+                "d_fov": cam.d_fov.tolist(),
+                "focal_length": cam.focal_length.tolist(),
+                "h_fov": cam.h_fov.tolist(),
+                "v_fov": cam.v_fov.tolist()
             } for cam in cams
         ]
     }
@@ -205,8 +210,8 @@ def process_segment(args, cams : List[CameraData], segment_start: int, segment_e
             cv2.imwrite(f"{raw_images_folder}/{cam.camera_id}_{current_frame}.png", cam.cleaned_frame)
             #cv2.imwrite(f"{raw_images_folder}/{cam.camera_id}_{current_frame}_depth.tiff", cam.cleaned_depth)
             
-            if args.visuals:
-                cv2.imshow(f"Camera {cam.camera_id}", cam.cleaned_frame)
+            # if args.visuals:
+            #    # cv2.imshow(f"Camera {cam.camera_id}", cam.cleaned_frame)
                 
         try:
             # This processes the camera images, does the blob detection and the triangulation and gets a xyz position of the SphereMarker
@@ -216,8 +221,8 @@ def process_segment(args, cams : List[CameraData], segment_start: int, segment_e
             
             if args.visuals:
                 for cam in cams:
-                    np_image = cam.cleaned_frame.copy()
-                    cv2.circle(np_image, thumb.processing_dict[cam]["center"], int(thumb.processing_dict[cam]["radius"]), (255, 0, 0), 2)  
+                    np_image = cam.image.copy()
+                    cv2.circle(np_image, thumb.processing_dict[cam]["center"], int(thumb .processing_dict[cam]["radius"]), (255, 0, 0), 2)  
                     cv2.circle(np_image, index_base.processing_dict[cam]["center"], int(index_base.processing_dict[cam]["radius"]), (0, 255, 0), 2)
                     cv2.circle(np_image, index_tip.processing_dict[cam]["center"], int(index_tip.processing_dict[cam]["radius"]), (0, 0, 255), 2)
                     cv2.imshow(f"Camera {cam.camera_id}",np_image)
@@ -233,6 +238,17 @@ def process_segment(args, cams : List[CameraData], segment_start: int, segment_e
                 print("Hand initialized")
             except ValueError:
                 print("Hand initialization failed")
+                # This is just for debugging purposes 
+                # store_state_dict = {}
+                # store_state_dict["id"] = timestep
+                # store_state_dict["frame"] = current_frame
+                # store_state_dict["finger_distance"] = 0
+                # store_state_dict["goal_position"] = np.eye(4).tolist()
+                # tracking_data["robot"]["states"].append(store_state_dict)
+                timestep += 1
+                current_frame += 1
+                # cv2.waitKey(1)
+                
                 continue
         else:
             # This updates the hand object with the new positions

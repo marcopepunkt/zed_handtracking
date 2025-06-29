@@ -22,13 +22,13 @@ def click_event(event, x, y, flags, params):
 
 # Create a trackbar window to adjust the HSV values
 # They are preconfigured for a yellow object 
-cam = 39725782
-calib_path = "/home/aidara/augmented_imitation_learning/zed_handtracking/calibration_output/20250606_125919"
+cam = 32689769
+calib_path = "/home/aidara/augmented_imitation_learning/zed_handtracking/calibration_output/20250629_112335"
 args = argparse.Namespace(calib_path=calib_path)
 cams = load_camera_calib(calib_path)
 hsv_limits = get_cam_config(args, cams)
-frame = cv2.imread(f"/home/aidara/augmented_imitation_learning/data_storage/Cube_in_box/fix_start_fix_end_0_Episode_0/raw_images/{cam}_raw.png")
-finger ="index_base" # "thumb" ,"index_base", "index_tip"
+frame = cv2.imread(f"/home/aidara/augmented_imitation_learning/data_storage/pos_test/test_movement_3_Episode_0/raw_images/{cam}_raw.png")
+finger ="index_tip" # "thumb" ,"index_base", "index_tip"
 hsv_limits = hsv_limits[finger][cam]
 cv2.namedWindow("Tracking")
 cv2.createTrackbar("LH", "Tracking", hsv_limits[0][0],255, nothing)

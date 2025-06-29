@@ -73,6 +73,7 @@ class SphereMarker:
         
         if len(valid_cams) < 2:
             # Not enough valid cameras for triangulation
+            print("Not enough valid cameras for triangulation")
             return  # Keep the previous position
         
         # Determine which cameras to use
@@ -222,10 +223,10 @@ class SphereMarker:
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
             (x, y), radius = cv2.minEnclosingCircle(largest_contour)
-            if radius > 4:
+            if radius > 3:
                 center = (int(x), int(y))
                 # Optional: draw the selected center
-                # cv2.imshow(f"Center Mask {cam.camera_id}", image_np)
+                #cv2.imshow(f"Center Mask {cam.camera_id}", image_np)
         return center, radius
     
     def triangulation(self, uv1,uv2, cam1, cam2):

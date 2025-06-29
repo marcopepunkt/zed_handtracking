@@ -24,7 +24,11 @@ def main(args):
     } for intr in intrinsics]
     
     disto = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.disto for zed in zed_list]
-        
+    d_fov = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.d_fov for zed in zed_list]
+    focal_length = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.focal_length_metric for zed in zed_list]
+    horizontal_fov = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.h_fov for zed in zed_list]
+    vertical_fov = [zed.get_camera_information().camera_configuration.calibration_parameters.left_cam.v_fov for zed in zed_list]
+    print(horizontal_fov)
     # create intrinsics matrix
     intrinsics_mat = []
     for intr in intrinsics:
@@ -72,16 +76,20 @@ def main(args):
             cv2.waitKey()
             exit()
 
-        """ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], intrinsics_mat[cam_idx], disto[cam_idx],
-                                                           flags=cv2.CALIB_USE_INTRINSIC_GUESS+
-                                                                cv2.CALIB_FIX_INTRINSIC +
-                                                                cv2.CALIB_FIX_PRINCIPAL_POINT+cv2.CALIB_FIX_FOCAL_LENGTH)"""
+        # ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], intrinsics_mat[cam_idx], disto[cam_idx],
+        #                                                    flags=cv2.CALIB_USE_INTRINSIC_GUESS+
+        #                                                         cv2.CALIB_FIX_INTRINSIC +
+        #                                                         cv2.CALIB_FIX_PRINCIPAL_POINT+cv2.CALIB_FIX_FOCAL_LENGTH)
+        
+        #ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
         ret, rvec, tvec = cv2.solvePnP(objpoints[0], imgpoints[0], intrinsics_mat[cam_idx], disto[cam_idx], None, None, useExtrinsicGuess=False, flags=cv2.SOLVEPNP_ITERATIVE)
         if ret: # if calibration is successful and we found the extrinsics
             rotation_matrix, _ = cv2.Rodrigues(rvec)
             extr_4x4 = np.eye(4)
             extr_4x4[:3, :3] = rotation_matrix
             extr_4x4[:3, 3] = tvec.T
+            
+            extr_4x4_checkerboard_camera = np.linalg.inv(extr_4x4)
             
             # Visualize the calibration results and project the points into the image
             imgpoints2, _ = cv2.projectPoints(objpoints[0], rvec, tvec, intrinsics_mat[cam_idx], disto[cam_idx])
@@ -100,9 +108,10 @@ def main(args):
             cv2.waitKey()
             cv2.destroyAllWindows()
             
+            
             os.makedirs(args.calib_output_path, exist_ok=True)
             with open(rf"{args.calib_output_path}/extr_{cam_idx}_{zed_serials[cam_idx]}.yml", 'w') as file:
-                yaml.dump({"id": zed_serials[cam_idx], 'extr_4x4': extr_4x4.tolist(), "intr_3x3": intrinsics_mat[cam_idx].tolist(), "disto": disto[cam_idx].tolist()}, file)
+                yaml.dump({"id": zed_serials[cam_idx], 'extr_4x4': extr_4x4_checkerboard_camera.tolist(), "intr_3x3": intrinsics_mat[cam_idx].tolist(), "disto": disto[cam_idx].tolist(), "d_fov": d_fov[cam_idx], "focal_length": focal_length[cam_idx], "h_fov": horizontal_fov[cam_idx], "v_fov": vertical_fov[cam_idx]}, file)
 
             print("Translation vector:\n", tvec)
         else:

@@ -9,7 +9,7 @@ import cv2
 def init_zed(calib_path):
     init = sl.InitParameters()
     init.camera_resolution = sl.RESOLUTION.HD720
-    init.camera_fps = 15  # The framerate is lowered to avoid any USB3 bandwidth issues
+    init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_units = sl.UNIT.MILLIMETER
 
@@ -27,6 +27,7 @@ def init_zed(calib_path):
         cam = sl.Camera()
         _ = cam.open(init)
         zed_list.append(cam)
+        time.sleep(1)
     
     return zed_list
 
@@ -63,19 +64,23 @@ class MultiCamSync:
     
     
 class CameraData:
-    def __init__(self, camera_id, intrinsics, extrinsics):
+    def __init__(self, camera_id, intrinsics, extrinsics, distortion, d_fov, focal_length, h_fov, v_fov):
         self.camera_id = camera_id
-        self.intrinsics = None
+        self.intrinsics = np.array(intrinsics)
         self.extrinsics = np.array(extrinsics)
-        
-        
+        self.distortion = np.array(distortion)        
+        self.d_fov = np.array(d_fov)
+        self.focal_length = np.array(focal_length)
+        self.h_fov = np.array(h_fov)
+        self.v_fov = np.array(v_fov)
+    
     def get_projection_matrix(self):
         # Suppose that the extrisics matrix is camera to world
         # T_wc = np.linalg.inv(self.extrinsics)
         # R_wc = T_wc[:3, :3]
         # t_wc = T_wc[:3, 3]
         # Rt = np.hstack((R_wc, t_wc.reshape(3, 1)))  
-        return self.intrinsics @ self.extrinsics[:3, :4]
+        return self.intrinsics @ np.linalg.inv(self.extrinsics)[:3, :4]
 
    
     def init_zed(self, svo_input_path):
@@ -86,6 +91,8 @@ class CameraData:
         init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use milliliter units (for depth measurements)
         init_params.depth_mode = sl.DEPTH_MODE.NEURAL 
         init_params.camera_resolution = sl.RESOLUTION.HD720
+        
+        print(f"The intrinsics are {init_params}")
                        
         zed = sl.Camera()
 
@@ -100,9 +107,9 @@ class CameraData:
         self.height = cam_config.resolution.height
         
         intr = cam_config.calibration_parameters.left_cam 
-        fx, fy, cx, cy = intr.fx, intr.fy, intr.cx, intr.cy
-        self.intrinsics = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
-            
+        # self.intrinsics = np.array([[intr.fx, 0, intr.cx], 
+        #                             [0, intr.fy, intr.cy], 
+        #                             [0, 0, 1]], dtype=np.float32)
         self.zed = zed
         zed.grab()
         
@@ -203,7 +210,7 @@ def load_camera_calib(path, id = None)-> list[CameraData]:
                 if id is not None and data["id"] != id:
                     continue
                 #create a camera object
-                cams.append(CameraData(data["id"],data['intr_3x3'],data['extr_4x4']))
+                cams.append(CameraData(data["id"],data['intr_3x3'],data['extr_4x4'],data['disto'], data['d_fov'], data['focal_length'], data['h_fov'], data['v_fov']))
             except yaml.YAMLError as exc:
                 print(exc)
     return cams
